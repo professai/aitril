@@ -233,7 +233,7 @@ The cache includes:
 
 ## Requirements
 
-- Python 3.11 or higher
+- Python 3.14.0 or higher
 - API keys for at least one provider:
   - OpenAI: https://platform.openai.com/api-keys
   - Anthropic: https://console.anthropic.com/
