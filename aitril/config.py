@@ -193,12 +193,55 @@ def init_wizard() -> Optional[dict]:
     return config
 
 
+def create_config_from_env() -> Optional[dict]:
+    """
+    Create configuration from environment variables if they exist.
+
+    Checks for OPENAI_API_KEY, ANTHROPIC_API_KEY, and GEMINI_API_KEY
+    environment variables and creates a config dict.
+
+    Returns:
+        Configuration dictionary if at least one API key is found, None otherwise.
+    """
+    config = {"providers": {}}
+    found_any = False
+
+    # Check OpenAI
+    if os.environ.get("OPENAI_API_KEY"):
+        config["providers"]["openai"] = {
+            "enabled": True,
+            "api_key": None,  # Will be read from env by provider
+            "model": "gpt-4"
+        }
+        found_any = True
+
+    # Check Anthropic
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        config["providers"]["anthropic"] = {
+            "enabled": True,
+            "api_key": None,  # Will be read from env by provider
+            "model": "claude-3-5-sonnet-20241022"
+        }
+        found_any = True
+
+    # Check Gemini
+    if os.environ.get("GEMINI_API_KEY"):
+        config["providers"]["gemini"] = {
+            "enabled": True,
+            "api_key": None,  # Will be read from env by provider
+            "model": "gemini-pro"
+        }
+        found_any = True
+
+    return config if found_any else None
+
+
 def ensure_config(min_providers: int = 2) -> dict:
     """
     Ensure configuration exists and meets minimum provider requirements.
 
-    If configuration doesn't exist or has insufficient providers,
-    runs the init wizard.
+    If configuration doesn't exist, tries to create config from environment variables.
+    If env vars are insufficient, runs the init wizard.
 
     Args:
         min_providers: Minimum number of enabled providers required.
@@ -212,10 +255,14 @@ def ensure_config(min_providers: int = 2) -> dict:
     config = load_config()
 
     if config is None:
-        print("No configuration found. Running setup wizard...\n")
-        config = init_wizard()
-        if config is None:
-            sys.exit(1)
+        # Try to auto-create config from environment variables
+        config = create_config_from_env()
+
+        if config is None or count_enabled_providers(config) < min_providers:
+            print("No configuration found. Running setup wizard...\n")
+            config = init_wizard()
+            if config is None:
+                sys.exit(1)
 
     enabled_count = count_enabled_providers(config)
 
