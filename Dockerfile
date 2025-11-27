@@ -9,13 +9,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies and Python 3.14
+# Install system dependencies and Python 3.13
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     build-essential \
     curl \
     git \
     ca-certificates \
+    libffi-dev \
+    libssl-dev \
     && add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -29,8 +31,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.13 1
 
-# Upgrade pip to latest version
-RUN python3 -m pip install --upgrade pip setuptools wheel --break-system-packages
+# Upgrade pip to latest version (ignore system packages to avoid conflicts)
+RUN python3 -m pip install --upgrade pip setuptools wheel --break-system-packages --ignore-installed
+
+# Install cffi explicitly to avoid conflicts with system packages
+RUN pip install cffi --break-system-packages
 
 # Copy the entire project
 COPY . /app
