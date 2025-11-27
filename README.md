@@ -8,9 +8,14 @@ AiTril is a neutral, open-source command-line interface that orchestrates multip
 
 - **Multi-Provider Support**: Integrate with OpenAI (GPT), Anthropic (Claude), and Google Gemini
 - **Parallel Queries**: Send prompts to all providers simultaneously (tri-lam mode)
+- **Agent Coordination**: Multiple collaboration modes (sequential, consensus, debate)
+- **Session Management**: Track conversations across chat and build sessions
+- **Smart Caching**: Store history, preferences, and context for continuity
+- **Real-Time Streaming**: See responses as they're generated with visual progress indicators
+- **Rich CLI Display**: Visual feedback with thinking indicators, task progress, and timing stats
 - **Simple Configuration**: Interactive setup wizard for easy provider configuration
 - **Async-First Design**: Built on Python asyncio for efficient concurrent operations
-- **Privacy-Focused**: API keys stored locally in your home directory
+- **Privacy-Focused**: API keys and cache stored locally in your home directory
 - **Extensible**: Clean provider abstraction for adding new LLM providers
 
 ## Installation
@@ -67,6 +72,64 @@ aitril tri "Compare your strengths and weaknesses as an AI model"
 
 This will query all enabled providers in parallel and display their responses in labeled sections.
 
+### 4. Agent Coordination Modes
+
+Leverage multi-agent collaboration for more sophisticated responses:
+
+**Sequential Mode** - Each agent builds on previous responses:
+```bash
+aitril tri --coordinate sequential "Solve this problem step by step: What's the best way to learn Python?"
+```
+
+**Consensus Mode** - Get a synthesized agreement from all agents:
+```bash
+aitril tri --coordinate consensus "What is the best programming language for web development?"
+```
+
+**Debate Mode** - Agents debate over multiple rounds:
+```bash
+aitril tri --coordinate debate "Discuss the pros and cons of microservices architecture"
+```
+
+### 5. Session Management
+
+Track conversations across named sessions:
+
+```bash
+# Start a project session
+aitril ask --session "my-project" -p gpt "Help me design a REST API"
+
+# Continue in the same session
+aitril tri --session "my-project" "What authentication should I use?"
+
+# View session history
+aitril cache history
+
+# Quick question without caching
+aitril ask --no-cache -p claude "What's 2+2?"
+```
+
+### 6. Cache Management
+
+Manage your conversation history and preferences:
+
+```bash
+# Show cache summary
+aitril cache show
+
+# List all sessions
+aitril cache list
+
+# View session history
+aitril cache history
+
+# Clear a specific session
+aitril cache clear --session "old-project"
+
+# Clear all cache (with confirmation)
+aitril cache clear
+```
+
 ## Configuration
 
 AiTril stores configuration in `~/.config/aitril/config.toml` (or `%APPDATA%\aitril\config.toml` on Windows).
@@ -95,12 +158,31 @@ model = "gemini-pro"
 Instead of storing API keys in the config file, you can use environment variables:
 
 ```bash
+# API Keys
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
-export GEMINI_API_KEY="..."
+export GOOGLE_API_KEY="..."  # Google's standard env var for Gemini
+
+# Model Selection (optional)
+export OPENAI_MODEL="gpt-4"
+export ANTHROPIC_MODEL="claude-3-haiku-20240307"
+export GEMINI_MODEL="gemini-2.0-flash"
 ```
 
 AiTril will automatically use these environment variables if no API key is specified in the configuration file.
+
+### Cache and Session Storage
+
+AiTril stores cache and session data separately from configuration:
+
+- **Config**: `~/.config/aitril/config.toml` (or `%APPDATA%\aitril\config.toml` on Windows)
+- **Cache**: `~/.cache/aitril/cache.json` (or `%LOCALAPPDATA%\aitril\cache\cache.json` on Windows)
+
+The cache includes:
+- **Session history**: All prompts and responses organized by session
+- **Global preferences**: Settings that persist across all sessions
+- **Session preferences**: Settings specific to individual sessions
+- **Context data**: Coordination context for multi-agent interactions
 
 ## Requirements
 
@@ -169,21 +251,35 @@ AiTril follows a modular architecture:
 - **`config.py`**: Configuration loading, saving, and interactive wizard
 - **`providers.py`**: Provider abstraction and implementations (OpenAI, Anthropic, Gemini)
 - **`orchestrator.py`**: Multi-provider orchestration and parallel query coordination
+- **`coordinator.py`**: Multi-agent coordination strategies (sequential, consensus, debate)
+- **`cache.py`**: Session management, history tracking, and preference storage
+- **`display.py`**: Rich CLI feedback with progress indicators and visual symbols
 - **`cli.py`**: Command-line interface using argparse
 
-All provider calls are async-first, with synchronous SDK calls wrapped using `asyncio.run_in_executor()` for clean concurrency.
+All provider calls are async-first using native async clients (`AsyncOpenAI`, `AsyncAnthropic`) for true concurrent streaming responses.
 
 ## Roadmap
 
+**Completed (v0.0.1):**
 - [x] Core multi-provider orchestration
 - [x] Interactive configuration wizard
 - [x] Parallel tri-lam queries
-- [ ] Streaming responses
-- [ ] Additional provider support (Cohere, local models, etc.)
+- [x] Real-time streaming responses
+- [x] Multi-agent coordination (sequential, consensus, debate modes)
+- [x] Session management and caching
+- [x] Conversation history tracking
+- [x] Rich CLI display with progress indicators
+- [x] Environment variable configuration
+- [x] Native async client implementation
+
+**Planned:**
+- [ ] Additional provider support (Cohere, Mistral, local models via Ollama)
 - [ ] Plugin system for custom providers
-- [ ] Response caching and history
+- [ ] Advanced preference learning
 - [ ] Database navigation tools
 - [ ] Agentic daemon framework
+- [ ] Web interface
+- [ ] REST API mode
 
 ## Contributing
 

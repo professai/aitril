@@ -5,23 +5,30 @@ Manages multiple LLM providers and coordinates parallel queries.
 """
 
 import asyncio
-from typing import Dict
+from typing import Dict, Optional
 
 from .providers import create_provider, Provider
+from .cache import SessionCache
+from .coordinator import AgentCoordinator, CoordinationStrategy
 
 
 class AiTril:
     """Main orchestration class for managing multiple LLM providers."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, session_name: Optional[str] = None, use_cache: bool = True):
         """
         Initialize AiTril with configuration.
 
         Args:
             config: Configuration dictionary containing provider settings.
+            session_name: Name of session for caching. Auto-generated if None.
+            use_cache: Whether to enable caching.
         """
         self.config = config
         self.providers: Dict[str, Provider] = {}
+        self.use_cache = use_cache
+        self.cache = SessionCache(session_name) if use_cache else None
+        self.coordinator = None
 
         # Initialize all enabled providers
         if "providers" in config:
@@ -31,6 +38,10 @@ class AiTril:
                         self.providers[name] = create_provider(name, provider_config)
                     except Exception as e:
                         print(f"Warning: Failed to initialize {name} provider: {e}")
+
+        # Initialize coordinator with available providers
+        if self.providers:
+            self.coordinator = AgentCoordinator(self.providers)
 
     def get_enabled_providers(self) -> list[str]:
         """
@@ -88,12 +99,13 @@ class AiTril:
         async for chunk in self.providers[provider_name].ask_stream(prompt):
             yield chunk
 
-    async def ask_tri(self, prompt: str) -> Dict[str, str]:
+    async def ask_tri(self, prompt: str, strategy: str = CoordinationStrategy.PARALLEL) -> Dict[str, any]:
         """
         Send a prompt to all enabled providers in parallel.
 
         Args:
             prompt: The prompt to send.
+            strategy: Coordination strategy to use (parallel, sequential, consensus, debate, specialist)
 
         Returns:
             Dictionary mapping provider names to their responses.
@@ -102,6 +114,38 @@ class AiTril:
         if not self.providers:
             raise ValueError("No providers enabled. Run 'aitril init' to configure providers.")
 
+        # Execute with coordination strategy
+        if strategy == CoordinationStrategy.PARALLEL:
+            responses = await self._ask_parallel(prompt)
+        elif strategy == CoordinationStrategy.SEQUENTIAL:
+            responses = await self.coordinator.coordinate_sequential(prompt)
+        elif strategy == CoordinationStrategy.CONSENSUS:
+            responses = await self.coordinator.coordinate_consensus(prompt)
+        elif strategy == CoordinationStrategy.DEBATE:
+            responses = await self.coordinator.coordinate_debate(prompt)
+        else:
+            responses = await self._ask_parallel(prompt)
+
+        # Save to cache if enabled
+        if self.use_cache and self.cache:
+            # For complex responses (consensus/debate), save the full structure
+            if isinstance(responses, dict) and "individual_responses" in responses:
+                self.cache.add_to_history(prompt, responses)
+            else:
+                self.cache.add_to_history(prompt, responses)
+
+        return responses
+
+    async def _ask_parallel(self, prompt: str) -> Dict[str, str]:
+        """
+        Query all providers in parallel (default behavior).
+
+        Args:
+            prompt: The prompt to send.
+
+        Returns:
+            Dictionary mapping provider names to their responses.
+        """
         async def _query_provider(name: str, provider: Provider) -> tuple[str, str]:
             """Query a single provider and handle errors."""
             try:
