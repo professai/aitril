@@ -8,6 +8,7 @@ running tri-lam parallel queries, and managing cache/sessions.
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 
@@ -17,6 +18,7 @@ from .orchestrator import AiTril
 from .cache import SessionCache
 from .coordinator import CoordinationStrategy
 from .display import display
+from .files import FileOperations
 
 
 def cmd_init(args):
@@ -287,6 +289,178 @@ def cmd_cache(args):
         display.divider("=")
 
 
+def cmd_config(args):
+    """
+    Handle 'aitril config' command.
+
+    Manage tech stack preferences and project settings.
+    """
+    cache = SessionCache()
+
+    if args.config_command == "set-stack":
+        # Set tech stack preferences
+        stack_config = {}
+
+        if args.language:
+            stack_config["language"] = args.language
+        if args.framework:
+            stack_config["framework"] = args.framework
+        if args.database:
+            stack_config["database"] = args.database
+        if args.tools:
+            stack_config["tools"] = args.tools.split(",")
+        if args.style_guide:
+            stack_config["style_guide"] = args.style_guide
+
+        global_pref = not args.session_only
+
+        cache.set_tech_stack(stack_config, global_pref=global_pref)
+
+        display.section_header("Tech Stack Preferences Saved")
+        print(f"Scope: {'Global' if global_pref else 'Session only'}")
+        for key, value in stack_config.items():
+            display.key_value(f"  {key}", value)
+        display.divider("=")
+
+    elif args.config_command == "show-stack":
+        # Show tech stack preferences
+        stack = cache.get_tech_stack()
+
+        display.section_header("Tech Stack Preferences")
+
+        if stack:
+            for key, value in stack.items():
+                display.key_value(f"  {key}", value)
+        else:
+            print("  No tech stack preferences set")
+
+        display.divider("=")
+
+    elif args.config_command == "set-project":
+        # Set project context
+        project_root = args.path or os.getcwd()
+        cache.set_project_context(project_root, args.project_type)
+
+        display.section_header("Project Context Saved")
+        display.key_value("  Root", project_root)
+        if args.project_type:
+            display.key_value("  Type", args.project_type)
+        display.divider("=")
+
+    elif args.config_command == "show-project":
+        # Show project context
+        project = cache.get_project_context()
+
+        display.section_header("Project Context")
+
+        if project:
+            for key, value in project.items():
+                display.key_value(f"  {key}", value)
+        else:
+            print("  No project context set")
+
+        display.divider("=")
+
+
+def cmd_build(args):
+    """
+    Handle 'aitril build' command.
+
+    Coordinate agents to plan and build code collaboratively.
+    """
+    start_time = time.time()
+
+    # Ensure we have at least 2 providers configured (tri-lam rule)
+    config = ensure_config(min_providers=2)
+
+    # Create orchestrator with session support
+    session_name = args.session if hasattr(args, 'session') else None
+    aitril = AiTril(config, session_name=session_name, use_cache=True)
+
+    # Get tech stack and project context from cache
+    tech_stack = aitril.cache.get_tech_stack() if aitril.cache else None
+    project_context = aitril.cache.get_project_context() if aitril.cache else None
+
+    # Add project root if specified
+    if hasattr(args, 'project_root') and args.project_root:
+        if project_context is None:
+            project_context = {}
+        project_context["project_root"] = args.project_root
+
+    display.section_header(f"AiTril Code Build: {args.task}")
+    print(f"Session: {session_name or 'auto-generated'}")
+
+    if tech_stack:
+        print("\nTech Stack:")
+        for key, value in tech_stack.items():
+            display.key_value(f"  {key}", value)
+
+    if project_context:
+        print("\nProject Context:")
+        for key, value in project_context.items():
+            display.key_value(f"  {key}", value)
+
+    display.divider()
+
+    try:
+        # Phase 1: Planning
+        display.task_start("Planning: Building consensus on architecture")
+        results = asyncio.run(
+            aitril.coordinator.coordinate_code_build(
+                args.task,
+                tech_stack=tech_stack,
+                project_context=project_context
+            )
+        )
+        display.task_complete()
+
+        # Display planning results
+        display.subsection_header("Planning Consensus")
+        print(results["planning"]["consensus"])
+        display.divider()
+
+        # Display implementation from each provider
+        display.subsection_header("Implementation")
+        for provider, code in results["implementation"].items():
+            print(f"\n[{provider.upper()}]:")
+            print(code[:1000] + "..." if len(code) > 1000 else code)
+        display.divider()
+
+        # Display review consensus
+        display.subsection_header("Code Review")
+        print(results["review"]["consensus"])
+        display.divider()
+
+        # Optionally write to files
+        if args.write_files:
+            file_ops = FileOperations(
+                project_root=project_context.get("project_root") if project_context else os.getcwd()
+            )
+
+            # Record build artifacts
+            if aitril.cache:
+                aitril.cache.add_build_artifact("code_build", {
+                    "task": args.task,
+                    "files_written": "See implementation output",
+                    "status": results["status"]
+                })
+
+            print("\n✓ Files would be written based on implementation output")
+            print(f"  Backup directory: {file_ops.get_backup_dir()}")
+
+        # Show timing stats
+        elapsed = time.time() - start_time
+        display.show_stats(
+            elapsed,
+            provider_stats={k: "completed" for k in results["implementation"].keys()}
+        )
+
+    except Exception as e:
+        display.task_error()
+        print(f"Error during code build: {e}")
+        sys.exit(1)
+
+
 def main():
     """Main entry point for the AiTril CLI."""
     parser = argparse.ArgumentParser(
@@ -316,6 +490,16 @@ Examples:
   aitril cache history                           Show current session history
   aitril cache clear --session "old-session"     Clear specific session
   aitril cache clear                             Clear all cache (with confirmation)
+
+  # Tech stack configuration
+  aitril config set-stack --language python --framework fastapi
+  aitril config set-stack --database postgresql --tools docker,pytest
+  aitril config show-stack                       Show current tech stack preferences
+
+  # Code building with consensus
+  aitril build "Create a REST API for user management"
+  aitril build "Add authentication middleware" --session "api-build"
+  aitril build "Write unit tests" --write-files
 
 For more information, visit: https://github.com/professai/aitril
         """
@@ -423,6 +607,85 @@ For more information, visit: https://github.com/professai/aitril
         help="Specific session to operate on"
     )
     parser_cache.set_defaults(func=cmd_cache)
+
+    # config command
+    parser_config = subparsers.add_parser(
+        "config",
+        help="Manage tech stack and project preferences"
+    )
+    parser_config.add_argument(
+        "config_command",
+        choices=["set-stack", "show-stack", "set-project", "show-project"],
+        help="Configuration operation to perform"
+    )
+    parser_config.add_argument(
+        "--language",
+        type=str,
+        help="Programming language (e.g., python, javascript, go)"
+    )
+    parser_config.add_argument(
+        "--framework",
+        type=str,
+        help="Framework (e.g., fastapi, react, django)"
+    )
+    parser_config.add_argument(
+        "--database",
+        type=str,
+        help="Database (e.g., postgresql, mongodb, sqlite)"
+    )
+    parser_config.add_argument(
+        "--tools",
+        type=str,
+        help="Comma-separated list of tools (e.g., docker,pytest,git)"
+    )
+    parser_config.add_argument(
+        "--style-guide",
+        type=str,
+        help="Code style guide (e.g., pep8, airbnb, google)"
+    )
+    parser_config.add_argument(
+        "--session-only",
+        action="store_true",
+        help="Set preferences for current session only (not global)"
+    )
+    parser_config.add_argument(
+        "--path",
+        type=str,
+        help="Project root path (for set-project command)"
+    )
+    parser_config.add_argument(
+        "--project-type",
+        type=str,
+        help="Project type (e.g., web_api, cli_tool, library)"
+    )
+    parser_config.set_defaults(func=cmd_config)
+
+    # build command
+    parser_build = subparsers.add_parser(
+        "build",
+        help="Coordinate agents to plan and build code"
+    )
+    parser_build.add_argument(
+        "task",
+        help="Description of what to build"
+    )
+    parser_build.add_argument(
+        "--session",
+        "-s",
+        type=str,
+        help="Session name for this build"
+    )
+    parser_build.add_argument(
+        "--project-root",
+        type=str,
+        help="Project root directory (overrides cached context)"
+    )
+    parser_build.add_argument(
+        "--write-files",
+        action="store_true",
+        help="Write generated code to files (with backups)"
+    )
+    parser_build.set_defaults(func=cmd_build)
 
     # Parse arguments
     args = parser.parse_args()

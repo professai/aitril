@@ -6,7 +6,7 @@ responses for more comprehensive and collaborative outputs.
 """
 
 import asyncio
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from .providers import Provider
 
@@ -211,6 +211,178 @@ class AgentCoordinator:
 
         return responses
 
+    async def coordinate_code_build(
+        self,
+        task_description: str,
+        tech_stack: Optional[Dict[str, Any]] = None,
+        project_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Coordinate agents to plan and build code collaboratively.
+
+        Phase 1: Consensus on architecture and approach
+        Phase 2: Implementation (sequential build)
+        Phase 3: Code review and validation
+
+        Args:
+            task_description: Description of what to build
+            tech_stack: Tech stack preferences (language, framework, tools, etc.)
+            project_context: Project context (root dir, type, existing files, etc.)
+
+        Returns:
+            Dictionary with plan, code, and review results
+        """
+        # Phase 1: Plan with consensus
+        planning_prompt = self._build_planning_prompt(task_description, tech_stack, project_context)
+
+        planning_results = await self.coordinate_consensus(planning_prompt)
+
+        # Phase 2: Implementation (sequential build)
+        implementation_prompt = self._build_implementation_prompt(
+            task_description,
+            planning_results["consensus"],
+            tech_stack,
+            project_context
+        )
+
+        implementation_results = await self.coordinate_sequential(implementation_prompt)
+
+        # Phase 3: Code review
+        review_prompt = self._build_review_prompt(
+            task_description,
+            implementation_results,
+            tech_stack
+        )
+
+        review_results = await self.coordinate_consensus(review_prompt)
+
+        return {
+            "task": task_description,
+            "tech_stack": tech_stack,
+            "planning": planning_results,
+            "implementation": implementation_results,
+            "review": review_results,
+            "status": "completed"
+        }
+
+    async def coordinate_code_review(
+        self,
+        code_content: str,
+        file_path: Optional[str] = None,
+        tech_stack: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Coordinate multi-agent code review.
+
+        Args:
+            code_content: Code to review
+            file_path: Optional path to file being reviewed
+            tech_stack: Tech stack context for style guidelines
+
+        Returns:
+            Dictionary with individual reviews and consensus
+        """
+        review_prompt = (
+            f"Please review the following code:\n\n"
+            f"{'File: ' + file_path if file_path else ''}\n"
+            f"```\n{code_content}\n```\n\n"
+            f"Please provide a code review covering:\n"
+            f"1. Code quality and best practices\n"
+            f"2. Potential bugs or issues\n"
+            f"3. Performance considerations\n"
+            f"4. Security concerns\n"
+            f"5. Suggested improvements\n"
+        )
+
+        if tech_stack:
+            stack_info = ", ".join([f"{k}: {v}" for k, v in tech_stack.items()])
+            review_prompt += f"\nTech stack context: {stack_info}"
+
+        return await self.coordinate_consensus(review_prompt)
+
+    def _build_planning_prompt(
+        self,
+        task: str,
+        tech_stack: Optional[Dict[str, Any]],
+        project_context: Optional[Dict[str, Any]]
+    ) -> str:
+        """Build prompt for code planning phase."""
+        prompt = (
+            f"Task: {task}\n\n"
+            f"Please provide a detailed implementation plan that includes:\n"
+            f"1. Overall architecture and approach\n"
+            f"2. File structure and organization\n"
+            f"3. Key components and their responsibilities\n"
+            f"4. Dependencies and tools needed\n"
+            f"5. Implementation steps in order\n"
+            f"6. Testing strategy\n"
+        )
+
+        if tech_stack:
+            stack_info = "\n".join([f"  - {k}: {v}" for k, v in tech_stack.items()])
+            prompt += f"\nTech stack preferences:\n{stack_info}\n"
+
+        if project_context:
+            context_info = "\n".join([f"  - {k}: {v}" for k, v in project_context.items()])
+            prompt += f"\nProject context:\n{context_info}\n"
+
+        prompt += "\nProvide a clear, actionable plan that can be implemented step by step."
+
+        return prompt
+
+    def _build_implementation_prompt(
+        self,
+        task: str,
+        plan: str,
+        tech_stack: Optional[Dict[str, Any]],
+        project_context: Optional[Dict[str, Any]]
+    ) -> str:
+        """Build prompt for code implementation phase."""
+        prompt = (
+            f"Task: {task}\n\n"
+            f"Implementation Plan:\n{plan}\n\n"
+            f"Please implement the code following the plan above. Provide:\n"
+            f"1. Complete, working code\n"
+            f"2. Clear comments explaining key sections\n"
+            f"3. File paths where code should be placed\n"
+            f"4. Any configuration or setup needed\n"
+        )
+
+        if tech_stack:
+            stack_info = "\n".join([f"  - {k}: {v}" for k, v in tech_stack.items()])
+            prompt += f"\nTech stack:\n{stack_info}\n"
+
+        return prompt
+
+    def _build_review_prompt(
+        self,
+        task: str,
+        implementation: Dict[str, str],
+        tech_stack: Optional[Dict[str, Any]]
+    ) -> str:
+        """Build prompt for code review phase."""
+        impl_summary = "\n\n".join([
+            f"From {provider}:\n{code[:500]}..." if len(code) > 500 else f"From {provider}:\n{code}"
+            for provider, code in implementation.items()
+        ])
+
+        prompt = (
+            f"Task: {task}\n\n"
+            f"Implementation:\n{impl_summary}\n\n"
+            f"Please review the implementation and provide:\n"
+            f"1. Assessment of correctness and completeness\n"
+            f"2. Code quality evaluation\n"
+            f"3. Potential issues or improvements\n"
+            f"4. Testing recommendations\n"
+            f"5. Final verdict: Ready to deploy / Needs revisions\n"
+        )
+
+        if tech_stack:
+            stack_info = "\n".join([f"  - {k}: {v}" for k, v in tech_stack.items()])
+            prompt += f"\nTech stack:\n{stack_info}\n"
+
+        return prompt
+
     def _build_consensus_prompt(
         self,
         original_prompt: str,
@@ -251,3 +423,5 @@ class CoordinationStrategy:
     CONSENSUS = "consensus"  # Parallel + consensus synthesis
     DEBATE = "debate"  # Multi-round debate format
     SPECIALIST = "specialist"  # Role-based specialization
+    CODE_BUILD = "code_build"  # Plan -> Implement -> Review cycle
+    CODE_REVIEW = "code_review"  # Multi-agent code review

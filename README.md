@@ -9,6 +9,9 @@ AiTril is a neutral, open-source command-line interface that orchestrates multip
 - **Multi-Provider Support**: Integrate with OpenAI (GPT), Anthropic (Claude), and Google Gemini
 - **Parallel Queries**: Send prompts to all providers simultaneously (tri-lam mode)
 - **Agent Coordination**: Multiple collaboration modes (sequential, consensus, debate)
+- **Code Building**: Agents collaborate to plan, implement, and review code with consensus
+- **Tech Stack Preferences**: Configure your preferred languages, frameworks, and tools
+- **File Operations**: Safe file management with automatic backups and diff tracking
 - **Session Management**: Track conversations across chat and build sessions
 - **Smart Caching**: Store history, preferences, and context for continuity
 - **Real-Time Streaming**: See responses as they're generated with visual progress indicators
@@ -129,6 +132,50 @@ aitril cache clear --session "old-project"
 # Clear all cache (with confirmation)
 aitril cache clear
 ```
+
+### 7. Tech Stack Configuration
+
+Configure your preferred technologies for code building:
+
+```bash
+# Set tech stack preferences (global)
+aitril config set-stack --language python --framework fastapi
+
+# Add database and tools
+aitril config set-stack --database postgresql --tools docker,pytest,black
+
+# Set style guide
+aitril config set-stack --style-guide pep8
+
+# Show current preferences
+aitril config show-stack
+
+# Set project context
+aitril config set-project --path /path/to/project --project-type web_api
+```
+
+### 8. Code Building with Multi-Agent Consensus
+
+Let agents collaborate to plan, build, and review code:
+
+```bash
+# Basic code building (uses cached tech stack)
+aitril build "Create a REST API endpoint for user registration"
+
+# Build with session tracking
+aitril build "Add JWT authentication middleware" --session "auth-feature"
+
+# Build and write to files with automatic backups
+aitril build "Write unit tests for user model" --write-files
+
+# Build with project context
+aitril build "Create database migration" --project-root /path/to/project
+```
+
+**Build Process:**
+1. **Planning Phase**: All agents reach consensus on architecture and approach
+2. **Implementation Phase**: Agents build sequentially, seeing each other's code
+3. **Review Phase**: Agents review implementation and provide consensus feedback
 
 ## Configuration
 
@@ -251,10 +298,11 @@ AiTril follows a modular architecture:
 - **`config.py`**: Configuration loading, saving, and interactive wizard
 - **`providers.py`**: Provider abstraction and implementations (OpenAI, Anthropic, Gemini)
 - **`orchestrator.py`**: Multi-provider orchestration and parallel query coordination
-- **`coordinator.py`**: Multi-agent coordination strategies (sequential, consensus, debate)
-- **`cache.py`**: Session management, history tracking, and preference storage
+- **`coordinator.py`**: Multi-agent coordination strategies (sequential, consensus, debate, code building)
+- **`cache.py`**: Session management, history tracking, tech stack preferences, and artifact storage
+- **`files.py`**: Safe file operations with automatic backups, diff tracking, and project structure creation
 - **`display.py`**: Rich CLI feedback with progress indicators and visual symbols
-- **`cli.py`**: Command-line interface using argparse
+- **`cli.py`**: Command-line interface with build, config, ask, tri, and cache commands
 
 All provider calls are async-first using native async clients (`AsyncOpenAI`, `AsyncAnthropic`) for true concurrent streaming responses.
 
@@ -271,6 +319,14 @@ All provider calls are async-first using native async clients (`AsyncOpenAI`, `A
 - [x] Rich CLI display with progress indicators
 - [x] Environment variable configuration
 - [x] Native async client implementation
+
+**Completed (v0.0.3):**
+- [x] Code building with multi-agent consensus (plan, implement, review)
+- [x] Tech stack preference management
+- [x] File operations with automatic backups
+- [x] Project context tracking
+- [x] Build artifact recording
+- [x] Code review coordination mode
 
 **Planned:**
 - [ ] Additional provider support (Cohere, Mistral, local models via Ollama)

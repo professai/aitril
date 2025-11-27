@@ -256,3 +256,105 @@ class SessionCache:
                 "context_keys": list(self.get_session_data().get("context", {}).keys())
             }
         }
+
+    def set_tech_stack(self, stack_config: Dict[str, Any], global_pref: bool = True) -> None:
+        """
+        Set tech stack preferences.
+
+        Args:
+            stack_config: Dictionary containing tech stack configuration:
+                         {
+                             "language": "python",
+                             "framework": "fastapi",
+                             "database": "postgresql",
+                             "tools": ["docker", "pytest"],
+                             "style_guide": "pep8"
+                         }
+            global_pref: If True, set as global preference; otherwise session-specific
+        """
+        if global_pref:
+            if "tech_stack" not in self.data["preferences"]:
+                self.data["preferences"]["tech_stack"] = {}
+            self.data["preferences"]["tech_stack"].update(stack_config)
+        else:
+            session = self.get_session_data()
+            if "tech_stack" not in session["preferences"]:
+                session["preferences"]["tech_stack"] = {}
+            session["preferences"]["tech_stack"].update(stack_config)
+
+        self._save_cache()
+
+    def get_tech_stack(self) -> Dict[str, Any]:
+        """
+        Get tech stack preferences.
+
+        Returns:
+            Tech stack configuration dict
+        """
+        # Check session preferences first
+        session = self.get_session_data()
+        session_stack = session["preferences"].get("tech_stack", {})
+
+        # Merge with global preferences (session overrides global)
+        global_stack = self.data["preferences"].get("tech_stack", {})
+
+        # Merge dictionaries (session values override global)
+        merged = global_stack.copy()
+        merged.update(session_stack)
+
+        return merged
+
+    def set_project_context(self, project_root: str, project_type: Optional[str] = None) -> None:
+        """
+        Set project context for current session.
+
+        Args:
+            project_root: Root directory of the project
+            project_type: Type of project (e.g., "web_api", "cli_tool", "library")
+        """
+        context = {
+            "project_root": project_root,
+            "project_type": project_type,
+            "set_at": datetime.now().isoformat()
+        }
+        self.set_context("project", context)
+
+    def get_project_context(self) -> Optional[Dict[str, Any]]:
+        """
+        Get project context from current session.
+
+        Returns:
+            Project context dict or None if not set
+        """
+        return self.get_context("project")
+
+    def add_build_artifact(self, artifact_type: str, artifact_info: Dict[str, Any]) -> None:
+        """
+        Record build artifact in session.
+
+        Args:
+            artifact_type: Type of artifact (e.g., "file", "directory", "deployment")
+            artifact_info: Information about the artifact
+        """
+        session = self.get_session_data()
+
+        if "build_artifacts" not in session:
+            session["build_artifacts"] = []
+
+        session["build_artifacts"].append({
+            "type": artifact_type,
+            "timestamp": datetime.now().isoformat(),
+            "info": artifact_info
+        })
+
+        self._save_cache()
+
+    def get_build_artifacts(self) -> List[Dict[str, Any]]:
+        """
+        Get all build artifacts from current session.
+
+        Returns:
+            List of build artifact records
+        """
+        session = self.get_session_data()
+        return session.get("build_artifacts", [])
