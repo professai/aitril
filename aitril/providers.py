@@ -76,6 +76,19 @@ class Provider(ABC):
         """
         pass
 
+    @abstractmethod
+    async def ask_stream(self, prompt: str):
+        """
+        Send a prompt to the provider and yield response chunks in real-time.
+
+        Args:
+            prompt: The prompt to send.
+
+        Yields:
+            Text chunks as they arrive from the provider.
+        """
+        pass
+
 
 class OpenAIProvider(Provider):
     """OpenAI (GPT) provider implementation."""
@@ -111,6 +124,34 @@ class OpenAIProvider(Provider):
 
         result = await loop.run_in_executor(None, _sync_call)
         return result or ""
+
+    async def ask_stream(self, prompt: str):
+        """
+        Send a prompt to OpenAI and yield response chunks in real-time.
+
+        Args:
+            prompt: The prompt to send.
+
+        Yields:
+            Text chunks as they arrive from OpenAI.
+        """
+        client = openai.OpenAI(api_key=self.api_key)
+        loop = asyncio.get_running_loop()
+
+        def _sync_stream():
+            stream = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                stream=True
+            )
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    yield chunk.choices[0].delta.content
+
+        # Run the sync streaming generator in executor and yield chunks
+        for chunk in await loop.run_in_executor(None, lambda: list(_sync_stream())):
+            yield chunk
 
 
 class AnthropicProvider(Provider):
@@ -148,6 +189,32 @@ class AnthropicProvider(Provider):
         result = await loop.run_in_executor(None, _sync_call)
         return result or ""
 
+    async def ask_stream(self, prompt: str):
+        """
+        Send a prompt to Anthropic Claude and yield response chunks in real-time.
+
+        Args:
+            prompt: The prompt to send.
+
+        Yields:
+            Text chunks as they arrive from Claude.
+        """
+        client = anthropic.Anthropic(api_key=self.api_key)
+        loop = asyncio.get_running_loop()
+
+        def _sync_stream():
+            with client.messages.stream(
+                model=self.model,
+                max_tokens=1000,
+                messages=[{"role": "user", "content": prompt}]
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
+
+        # Run the sync streaming generator in executor and yield chunks
+        for chunk in await loop.run_in_executor(None, lambda: list(_sync_stream())):
+            yield chunk
+
 
 class GeminiProvider(Provider):
     """Google Gemini provider implementation."""
@@ -180,6 +247,30 @@ class GeminiProvider(Provider):
 
         result = await loop.run_in_executor(None, _sync_call)
         return result or ""
+
+    async def ask_stream(self, prompt: str):
+        """
+        Send a prompt to Google Gemini and yield response chunks in real-time.
+
+        Args:
+            prompt: The prompt to send.
+
+        Yields:
+            Text chunks as they arrive from Gemini.
+        """
+        genai.configure(api_key=self.api_key)
+        loop = asyncio.get_running_loop()
+
+        def _sync_stream():
+            model = genai.GenerativeModel(self.model)
+            response = model.generate_content(prompt, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+
+        # Run the sync streaming generator in executor and yield chunks
+        for chunk in await loop.run_in_executor(None, lambda: list(_sync_stream())):
+            yield chunk
 
 
 def create_provider(name: str, config: dict) -> Provider:

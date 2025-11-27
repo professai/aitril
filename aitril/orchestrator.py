@@ -64,6 +64,30 @@ class AiTril:
 
         return await self.providers[provider_name].ask(prompt)
 
+    async def ask_single_stream(self, provider_name: str, prompt: str):
+        """
+        Send a prompt to a single provider and yield response chunks.
+
+        Args:
+            provider_name: Name of the provider to query.
+            prompt: The prompt to send.
+
+        Yields:
+            Text chunks as they arrive from the provider.
+
+        Raises:
+            ValueError: If provider is not enabled or doesn't exist.
+        """
+        if provider_name not in self.providers:
+            available = ", ".join(self.providers.keys())
+            raise ValueError(
+                f"Provider '{provider_name}' is not enabled. "
+                f"Available providers: {available}"
+            )
+
+        async for chunk in self.providers[provider_name].ask_stream(prompt):
+            yield chunk
+
     async def ask_tri(self, prompt: str) -> Dict[str, str]:
         """
         Send a prompt to all enabled providers in parallel.

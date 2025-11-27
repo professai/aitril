@@ -46,14 +46,27 @@ def cmd_ask(args):
 
     provider_name = provider_map.get(args.provider.lower(), args.provider.lower())
 
-    # Run async query
+    # Run async query with streaming (if enabled)
     try:
-        response = asyncio.run(aitril.ask_single(provider_name, args.prompt))
-        print(f"\n{'=' * 60}")
-        print(f"{aitril.provider_display_name(provider_name)}")
-        print('=' * 60)
-        print(response)
-        print()
+        if args.stream:
+            # Streaming mode
+            async def stream_response():
+                print(f"\n{'=' * 60}")
+                print(f"{aitril.provider_display_name(provider_name)}")
+                print('=' * 60)
+                async for chunk in aitril.ask_single_stream(provider_name, args.prompt):
+                    print(chunk, end='', flush=True)
+                print("\n")
+
+            asyncio.run(stream_response())
+        else:
+            # Non-streaming mode
+            response = asyncio.run(aitril.ask_single(provider_name, args.prompt))
+            print(f"\n{'=' * 60}")
+            print(f"{aitril.provider_display_name(provider_name)}")
+            print('=' * 60)
+            print(response)
+            print()
     except ValueError as e:
         print(f"\nError: {e}\n")
         sys.exit(1)
@@ -145,6 +158,18 @@ For more information, visit: https://github.com/professai/aitril
     parser_ask.add_argument(
         "prompt",
         help="Prompt to send to the provider"
+    )
+    parser_ask.add_argument(
+        "--stream",
+        action="store_true",
+        default=True,
+        help="Stream response in real-time (default: True)"
+    )
+    parser_ask.add_argument(
+        "--no-stream",
+        dest="stream",
+        action="store_false",
+        help="Disable streaming, wait for complete response"
     )
     parser_ask.set_defaults(func=cmd_ask)
 
