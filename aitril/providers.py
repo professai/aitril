@@ -161,7 +161,7 @@ class AnthropicProvider(Provider):
         return "ANTHROPIC_API_KEY"
 
     def _default_model(self) -> str:
-        return "claude-3-5-sonnet-20241022"
+        return "claude-3-5-sonnet-20240620"
 
     async def ask(self, prompt: str) -> str:
         """

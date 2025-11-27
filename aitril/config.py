@@ -140,7 +140,7 @@ def init_wizard() -> Optional[dict]:
         config["providers"]["anthropic"] = {
             "enabled": True,
             "api_key": api_key if api_key else None,
-            "model": "claude-3-5-sonnet-20241022"
+            "model": "claude-3-5-sonnet-20240620"
         }
         print("✓ Anthropic configured")
     else:
@@ -220,7 +220,7 @@ def create_config_from_env() -> Optional[dict]:
         config["providers"]["anthropic"] = {
             "enabled": True,
             "api_key": None,  # Will be read from env by provider
-            "model": "claude-3-5-sonnet-20241022"
+            "model": "claude-3-5-sonnet-20240620"
         }
         found_any = True
 
