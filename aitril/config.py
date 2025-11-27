@@ -211,7 +211,7 @@ def create_config_from_env() -> Optional[dict]:
         config["providers"]["openai"] = {
             "enabled": True,
             "api_key": None,  # Will be read from env by provider
-            "model": "gpt-4"
+            # Model will be read from OPENAI_MODEL env var or use default
         }
         found_any = True
 
@@ -220,7 +220,7 @@ def create_config_from_env() -> Optional[dict]:
         config["providers"]["anthropic"] = {
             "enabled": True,
             "api_key": None,  # Will be read from env by provider
-            "model": "claude-3-haiku-20240307"
+            # Model will be read from ANTHROPIC_MODEL env var or use default
         }
         found_any = True
 
@@ -229,7 +229,7 @@ def create_config_from_env() -> Optional[dict]:
         config["providers"]["gemini"] = {
             "enabled": True,
             "api_key": None,  # Will be read from env by provider
-            "model": "gemini-pro"
+            # Model will be read from GEMINI_MODEL env var or use default
         }
         found_any = True
 

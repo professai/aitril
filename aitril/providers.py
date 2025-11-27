@@ -26,7 +26,7 @@ class Provider(ABC):
         """
         self.config = config
         self.api_key = self._get_api_key()
-        self.model = config.get("model", self._default_model())
+        self.model = self._get_model()
 
     @abstractmethod
     def _get_env_var_name(self) -> str:
@@ -34,9 +34,36 @@ class Provider(ABC):
         pass
 
     @abstractmethod
+    def _get_model_env_var_name(self) -> str:
+        """Return the environment variable name for the model."""
+        pass
+
+    @abstractmethod
     def _default_model(self) -> str:
         """Return the default model name."""
         pass
+
+    def _get_model(self) -> str:
+        """
+        Get model name from config or environment variable.
+
+        Priority: config > environment variable > default
+
+        Returns:
+            Model name string.
+        """
+        # Try config first
+        model = self.config.get("model")
+
+        # Fall back to environment variable
+        if not model:
+            model = os.environ.get(self._get_model_env_var_name())
+
+        # Fall back to default
+        if not model:
+            model = self._default_model()
+
+        return model
 
     def _get_api_key(self) -> str:
         """
@@ -95,6 +122,9 @@ class OpenAIProvider(Provider):
 
     def _get_env_var_name(self) -> str:
         return "OPENAI_API_KEY"
+
+    def _get_model_env_var_name(self) -> str:
+        return "OPENAI_MODEL"
 
     def _default_model(self) -> str:
         return "gpt-4"
@@ -156,6 +186,9 @@ class AnthropicProvider(Provider):
     def _get_env_var_name(self) -> str:
         return "ANTHROPIC_API_KEY"
 
+    def _get_model_env_var_name(self) -> str:
+        return "ANTHROPIC_MODEL"
+
     def _default_model(self) -> str:
         return "claude-3-haiku-20240307"
 
@@ -212,6 +245,9 @@ class GeminiProvider(Provider):
 
     def _get_env_var_name(self) -> str:
         return "GEMINI_API_KEY"
+
+    def _get_model_env_var_name(self) -> str:
+        return "GEMINI_MODEL"
 
     def _default_model(self) -> str:
         return "gemini-pro"
