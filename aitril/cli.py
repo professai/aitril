@@ -111,7 +111,7 @@ Examples:
   aitril ask --provider gpt "Hello, world!"     Query a single provider
   aitril tri "Compare your strengths"            Query all providers in parallel
 
-For more information, visit: https://github.com/aitril/aitril
+For more information, visit: https://github.com/professai/aitril
         """
     )
 
