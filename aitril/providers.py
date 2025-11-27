@@ -250,7 +250,7 @@ class GeminiProvider(Provider):
         return "GEMINI_MODEL"
 
     def _default_model(self) -> str:
-        return "gemini-2.0-flash-thinking-exp-01-21"
+        return "gemini-3-pro-preview"
 
     async def ask(self, prompt: str) -> str:
         """
