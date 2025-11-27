@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aitril"
 version = "0.0.1"
 description = "AiTril - Multi-LLM orchestration CLI tool"
-readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
