@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  aitril:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aitril:latest
+    container_name: aitril-dev
+    environment:
+      # Mount API keys from host environment (optional)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      # Mount source code for development
+      - .:/app
+    command: bash
+    stdin_open: true
+    tty: true
+    working_dir: /app
