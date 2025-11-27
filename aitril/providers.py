@@ -135,23 +135,19 @@ class OpenAIProvider(Provider):
         Yields:
             Text chunks as they arrive from OpenAI.
         """
-        client = openai.OpenAI(api_key=self.api_key)
-        loop = asyncio.get_running_loop()
+        # Use native async client for true async streaming
+        client = openai.AsyncOpenAI(api_key=self.api_key)
 
-        def _sync_stream():
-            stream = client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                stream=True
-            )
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
+        stream = await client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000,
+            stream=True
+        )
 
-        # Run the sync streaming generator in executor and yield chunks
-        for chunk in await loop.run_in_executor(None, lambda: list(_sync_stream())):
-            yield chunk
+        async for chunk in stream:
+            if chunk.choices[0].delta.content is not None:
+                yield chunk.choices[0].delta.content
 
 
 class AnthropicProvider(Provider):
@@ -161,7 +157,7 @@ class AnthropicProvider(Provider):
         return "ANTHROPIC_API_KEY"
 
     def _default_model(self) -> str:
-        return "claude-3-5-sonnet-20240620"
+        return "claude-3-haiku-20240307"
 
     async def ask(self, prompt: str) -> str:
         """
@@ -199,21 +195,16 @@ class AnthropicProvider(Provider):
         Yields:
             Text chunks as they arrive from Claude.
         """
-        client = anthropic.Anthropic(api_key=self.api_key)
-        loop = asyncio.get_running_loop()
+        # Use native async client for true async streaming
+        client = anthropic.AsyncAnthropic(api_key=self.api_key)
 
-        def _sync_stream():
-            with client.messages.stream(
-                model=self.model,
-                max_tokens=1000,
-                messages=[{"role": "user", "content": prompt}]
-            ) as stream:
-                for text in stream.text_stream:
-                    yield text
-
-        # Run the sync streaming generator in executor and yield chunks
-        for chunk in await loop.run_in_executor(None, lambda: list(_sync_stream())):
-            yield chunk
+        async with client.messages.stream(
+            model=self.model,
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}]
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
 
 
 class GeminiProvider(Provider):
