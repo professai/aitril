@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aitril"
+version = "0.0.1"
+description = "AiTril - Multi-LLM orchestration CLI tool"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "AiTril Contributors"}
+]
+keywords = ["llm", "ai", "cli", "orchestration", "openai", "anthropic", "gemini"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "openai>=1.0.0",
+    "anthropic>=0.34.0",
+    "google-generativeai>=0.3.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "tomli-w>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+aitril = "aitril.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/aitril/aitril"
+Repository = "https://github.com/aitril/aitril"
+Issues = "https://github.com/aitril/aitril/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aitril*"]
+exclude = ["tests*"]
