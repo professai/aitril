@@ -8,15 +8,15 @@ version = "0.0.1"
 description = "AiTril - Multi-LLM orchestration CLI tool"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
-    {name = "AiTril Contributors"}
+    {name = "Collin Paran"}
 ]
 keywords = ["llm", "ai", "cli", "orchestration", "openai", "anthropic", "gemini"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -44,9 +44,9 @@ dev = [
 aitril = "aitril.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/aitril/aitril"
-Repository = "https://github.com/aitril/aitril"
-Issues = "https://github.com/aitril/aitril/issues"
+Homepage = "https://github.com/professai/aitril"
+Repository = "https://github.com/professai/aitril"
+Issues = "https://github.com/professai/aitril/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
