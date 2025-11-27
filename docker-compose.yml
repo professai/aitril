@@ -5,8 +5,10 @@ services:
       dockerfile: Dockerfile
     image: aitril:latest
     container_name: aitril-dev
+    env_file:
+      - .env  # Load API keys from .env file
     environment:
-      # Mount API keys from host environment (optional)
+      # Override API keys from host environment (optional)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}

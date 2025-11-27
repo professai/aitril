@@ -130,22 +130,37 @@ pytest
 
 ### Docker Development Environment
 
-Build and run AiTril in a Docker container:
+Build and run AiTril in a Docker container using Docker Compose:
 
 ```bash
-# Build the image
-docker build -t aitril-dev .
+# 1. Copy the example environment file and add your API keys
+cp .env.example .env
+# Edit .env and add your actual API keys
 
-# Run the container
-docker run -it --rm aitril-dev
+# 2. Build and start the container
+docker-compose up -d
 
-# Run with environment variables for API keys
-docker run -it --rm \
-  -e OPENAI_API_KEY="sk-..." \
-  -e ANTHROPIC_API_KEY="sk-ant-..." \
-  -e GEMINI_API_KEY="..." \
-  aitril-dev aitril tri "Hello, world!"
+# 3. Run aitril commands inside the container
+docker-compose exec aitril aitril --help
+docker-compose exec aitril aitril --version
+
+# 4. Enter interactive shell
+docker-compose exec aitril bash
+
+# 5. Stop and remove the container
+docker-compose down
 ```
+
+**Environment Setup:**
+
+The `.env` file should contain your API keys:
+```bash
+OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+GEMINI_API_KEY=your-key-here
+```
+
+See `.env.example` for a template with links to get API keys.
 
 ## Architecture
 
