@@ -244,7 +244,7 @@ class GeminiProvider(Provider):
     """Google Gemini provider implementation."""
 
     def _get_env_var_name(self) -> str:
-        return "GEMINI_API_KEY"
+        return "GOOGLE_API_KEY"
 
     def _get_model_env_var_name(self) -> str:
         return "GEMINI_MODEL"

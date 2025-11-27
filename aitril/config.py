@@ -154,7 +154,7 @@ def init_wizard() -> Optional[dict]:
     configure_gemini = input("Configure Google Gemini? [y/N]: ").strip().lower()
 
     if configure_gemini in ["y", "yes"]:
-        api_key = input("Enter your Google API key (or press Enter to use GEMINI_API_KEY env var): ").strip()
+        api_key = input("Enter your Google API key (or press Enter to use GOOGLE_API_KEY env var): ").strip()
         config["providers"]["gemini"] = {
             "enabled": True,
             "api_key": api_key if api_key else None,
@@ -225,7 +225,7 @@ def create_config_from_env() -> Optional[dict]:
         found_any = True
 
     # Check Gemini
-    if os.environ.get("GEMINI_API_KEY"):
+    if os.environ.get("GOOGLE_API_KEY"):
         config["providers"]["gemini"] = {
             "enabled": True,
             "api_key": None,  # Will be read from env by provider
