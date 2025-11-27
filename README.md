@@ -150,7 +150,7 @@ model = "claude-opus-4-5-20250929"
 [providers.gemini]
 enabled = true
 api_key = "..."  # Optional: can use GOOGLE_API_KEY env var instead
-model = "gemini-2.0-flash"
+model = "gemini-2.0-flash-thinking-exp-01-21"
 ```
 
 ### Environment Variables
@@ -166,7 +166,7 @@ export GOOGLE_API_KEY="..."  # Google's standard env var for Gemini
 # Model Selection (optional)
 export OPENAI_MODEL="gpt-5.1"
 export ANTHROPIC_MODEL="claude-opus-4-5-20250929"
-export GEMINI_MODEL="gemini-2.0-flash"
+export GEMINI_MODEL="gemini-2.0-flash-thinking-exp-01-21"
 ```
 
 AiTril will automatically use these environment variables if no API key is specified in the configuration file.
