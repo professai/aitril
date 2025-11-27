@@ -140,17 +140,17 @@ AiTril stores configuration in `~/.config/aitril/config.toml` (or `%APPDATA%\ait
 [providers.openai]
 enabled = true
 api_key = "sk-..."  # Optional: can use OPENAI_API_KEY env var instead
-model = "gpt-4"
+model = "gpt-5.1"
 
 [providers.anthropic]
 enabled = true
 api_key = "sk-ant-..."  # Optional: can use ANTHROPIC_API_KEY env var instead
-model = "claude-3-5-sonnet-20241022"
+model = "claude-opus-4-5-20250929"
 
 [providers.gemini]
 enabled = true
-api_key = "..."  # Optional: can use GEMINI_API_KEY env var instead
-model = "gemini-pro"
+api_key = "..."  # Optional: can use GOOGLE_API_KEY env var instead
+model = "gemini-2.0-flash"
 ```
 
 ### Environment Variables
@@ -164,8 +164,8 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export GOOGLE_API_KEY="..."  # Google's standard env var for Gemini
 
 # Model Selection (optional)
-export OPENAI_MODEL="gpt-4"
-export ANTHROPIC_MODEL="claude-3-haiku-20240307"
+export OPENAI_MODEL="gpt-5.1"
+export ANTHROPIC_MODEL="claude-opus-4-5-20250929"
 export GEMINI_MODEL="gemini-2.0-flash"
 ```
 

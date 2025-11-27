@@ -127,7 +127,7 @@ class OpenAIProvider(Provider):
         return "OPENAI_MODEL"
 
     def _default_model(self) -> str:
-        return "gpt-4"
+        return "gpt-5.1"
 
     async def ask(self, prompt: str) -> str:
         """
@@ -190,7 +190,7 @@ class AnthropicProvider(Provider):
         return "ANTHROPIC_MODEL"
 
     def _default_model(self) -> str:
-        return "claude-3-haiku-20240307"
+        return "claude-opus-4-5-20250929"
 
     async def ask(self, prompt: str) -> str:
         """
