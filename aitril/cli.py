@@ -461,6 +461,38 @@ def cmd_build(args):
         sys.exit(1)
 
 
+def cmd_web(args):
+    """
+    Handle 'aitril web' command.
+
+    Start the web interface server.
+    """
+    try:
+        import uvicorn
+        from .web import app
+    except ImportError:
+        print("Error: Web dependencies not installed.")
+        print("Install them with: pip install 'aitril[web]'")
+        sys.exit(1)
+
+    host = args.host if hasattr(args, 'host') else "0.0.0.0"
+    port = args.port if hasattr(args, 'port') else 8000
+
+    print(f"""
+🧬 AiTril Web Interface
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Starting server at: http://{host}:{port}
+
+Open your browser and navigate to the URL above.
+Press Ctrl+C to stop the server.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""")
+
+    uvicorn.run(app, host=host, port=port)
+
+
 def main():
     """Main entry point for the AiTril CLI."""
     parser = argparse.ArgumentParser(
@@ -686,6 +718,25 @@ For more information, visit: https://github.com/professai/aitril
         help="Write generated code to files (with backups)"
     )
     parser_build.set_defaults(func=cmd_build)
+
+    # web command
+    parser_web = subparsers.add_parser(
+        "web",
+        help="Start the web interface server"
+    )
+    parser_web.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind the server to (default: 0.0.0.0)"
+    )
+    parser_web.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to run the server on (default: 8000)"
+    )
+    parser_web.set_defaults(func=cmd_web)
 
     # Parse arguments
     args = parser.parse_args()

@@ -1,5 +1,6 @@
-# AiTril Development/Test Dockerfile
+# AiTril Production Dockerfile
 # Using Ubuntu 24.04 LTS with Python 3.14.0
+# Installs AiTril v0.0.7 from PyPI
 
 FROM ubuntu:24.04
 
@@ -37,20 +38,16 @@ RUN python3 -m pip install --upgrade pip setuptools wheel --break-system-package
 # Install cffi explicitly to avoid conflicts with system packages
 RUN pip install cffi --break-system-packages
 
-# Copy the entire project
-COPY . /app
-
-# Install AiTril in editable mode
-RUN pip install -e . --break-system-packages
+# Install AiTril from PyPI
+RUN pip install aitril==0.0.7 --break-system-packages
 
 # Reset environment
 ENV DEBIAN_FRONTEND=
 
-# Default command: drop into bash for interactive development
-CMD ["/bin/bash"]
+# Default command: show help
+CMD ["aitril", "--help"]
 
 # Usage examples:
-# docker-compose up -d                          # Start container in background
-# docker-compose exec aitril aitril --help      # Run aitril commands
-# docker-compose exec aitril bash               # Get interactive shell
-# docker-compose down                           # Stop and remove container
+# docker run -it professai/aitril:latest aitril --help
+# docker run -it professai/aitril:latest aitril tri "your prompt"
+# docker run -it --env-file .env professai/aitril:latest aitril tri "your prompt"

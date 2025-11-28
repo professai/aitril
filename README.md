@@ -47,6 +47,34 @@ cd aitril
 pip install -e .
 ```
 
+### Using Docker
+
+Run AiTril in a Docker container without installing Python 3.14 locally:
+
+```bash
+# Quick start - show help
+docker run -it collinparan/aitril:latest
+
+# Query a single provider (requires API keys via env vars)
+docker run -it \
+  -e OPENAI_API_KEY="sk-..." \
+  collinparan/aitril:latest \
+  aitril ask -p gpt "your prompt"
+
+# Tri-lam mode with all providers
+docker run -it \
+  -e OPENAI_API_KEY="sk-..." \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e GEMINI_API_KEY="..." \
+  collinparan/aitril:latest \
+  aitril tri "your prompt"
+
+# Use .env file for API keys
+docker run -it --env-file .env \
+  collinparan/aitril:latest \
+  aitril tri "your prompt"
+```
+
 ## Quick Start
 
 ### 1. Initialize Configuration
@@ -261,9 +289,25 @@ pip install -e ".[dev]"
 pytest
 ```
 
-### Docker Development Environment
+### Docker Images
 
-Build and run AiTril in a Docker container using Docker Compose:
+AiTril is available as a Docker image on DockerHub:
+
+**Production Image (from PyPI):**
+```bash
+# Pull the latest version from DockerHub
+docker pull collinparan/aitril:latest
+
+# Or pull a specific version
+docker pull collinparan/aitril:0.0.7
+
+# Run with environment variables
+docker run -it --env-file .env collinparan/aitril:latest aitril tri "your prompt"
+```
+
+**Local Development with Docker Compose:**
+
+Build and run AiTril from source in a Docker container:
 
 ```bash
 # 1. Copy the example environment file and add your API keys
