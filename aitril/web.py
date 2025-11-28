@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from .config import load_config
+from .config import load_config, load_config_from_env
 from .orchestrator import AiTril
 from .coordinator import CoordinationStrategy
 
@@ -99,8 +99,18 @@ async def websocket_endpoint(websocket: WebSocket):
             "timestamp": datetime.now().isoformat()
         })
 
-        # Load config
+        # Load config from file or environment variables
         config = load_config()
+        if config is None:
+            config = load_config_from_env()
+
+        if config is None:
+            await manager.send_event(websocket, {
+                "type": "error",
+                "message": "No configuration found. Please set API keys in environment variables.",
+                "timestamp": datetime.now().isoformat()
+            })
+            return
 
         while True:
             # Receive message from client

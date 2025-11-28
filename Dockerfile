@@ -1,6 +1,6 @@
 # AiTril Production Dockerfile
 # Using Ubuntu 24.04 LTS with Python 3.14.0
-# Installs AiTril v0.0.10 from PyPI with web interface
+# Installs AiTril v0.0.11 from PyPI with web interface
 
 FROM ubuntu:24.04
 
@@ -39,7 +39,7 @@ RUN python3 -m pip install --upgrade pip setuptools wheel --break-system-package
 RUN pip install cffi --break-system-packages
 
 # Install AiTril from PyPI with web extras
-RUN pip install 'aitril[web]==0.0.10' --break-system-packages
+RUN pip install 'aitril[web]==0.0.11' --break-system-packages
 
 # Copy static files for web interface
 COPY static /app/static

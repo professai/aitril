@@ -72,6 +72,49 @@ def save_config(cfg: dict) -> None:
         sys.exit(1)
 
 
+def load_config_from_env() -> Optional[dict]:
+    """
+    Load configuration from environment variables.
+
+    Returns:
+        Dictionary containing configuration from env vars, or None if no API keys found.
+    """
+    config = {"providers": {}}
+
+    # Check for OpenAI
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        config["providers"]["openai"] = {
+            "enabled": True,
+            "api_key": openai_key,
+            "model": os.environ.get("OPENAI_MODEL", "gpt-4")
+        }
+
+    # Check for Anthropic
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        config["providers"]["anthropic"] = {
+            "enabled": True,
+            "api_key": anthropic_key,
+            "model": os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+        }
+
+    # Check for Gemini
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        config["providers"]["gemini"] = {
+            "enabled": True,
+            "api_key": gemini_key,
+            "model": os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
+        }
+
+    # Return None if no providers configured
+    if not config["providers"]:
+        return None
+
+    return config
+
+
 def count_enabled_providers(cfg: dict) -> int:
     """
     Count the number of enabled providers in configuration.
