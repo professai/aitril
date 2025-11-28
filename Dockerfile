@@ -1,6 +1,6 @@
 # AiTril Production Dockerfile
 # Using Ubuntu 24.04 LTS with Python 3.14.0
-# Installs AiTril v0.0.7 from PyPI
+# Installs AiTril v0.0.8 from PyPI with web interface
 
 FROM ubuntu:24.04
 
@@ -38,16 +38,26 @@ RUN python3 -m pip install --upgrade pip setuptools wheel --break-system-package
 # Install cffi explicitly to avoid conflicts with system packages
 RUN pip install cffi --break-system-packages
 
-# Install AiTril from PyPI
-RUN pip install aitril==0.0.7 --break-system-packages
+# Install AiTril from PyPI with web extras
+RUN pip install 'aitril[web]==0.0.9' --break-system-packages
+
+# Copy static files for web interface
+COPY static /app/static
+
+# Expose web server port
+EXPOSE 8000
 
 # Reset environment
 ENV DEBIAN_FRONTEND=
 
-# Default command: show help
-CMD ["aitril", "--help"]
+# Default command: start web server
+CMD ["aitril", "web", "--host", "0.0.0.0", "--port", "8000"]
 
 # Usage examples:
-# docker run -it professai/aitril:latest aitril --help
-# docker run -it professai/aitril:latest aitril tri "your prompt"
-# docker run -it --env-file .env professai/aitril:latest aitril tri "your prompt"
+# Web interface:
+# docker run -p 8000:8000 --env-file .env collinparan/aitril:latest
+# Then open http://localhost:8000
+#
+# CLI usage:
+# docker run -it --env-file .env collinparan/aitril:latest aitril --help
+# docker run -it --env-file .env collinparan/aitril:latest aitril tri "your prompt"

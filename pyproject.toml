@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aitril"
-version = "0.0.8"
+version = "0.0.9"
 description = "AiTril - Multi-LLM orchestration CLI tool"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.14"
@@ -53,3 +53,6 @@ Issues = "https://github.com/professai/aitril/issues"
 where = ["."]
 include = ["aitril*"]
 exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+aitril = ["static/*"]
