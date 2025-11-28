@@ -476,7 +476,7 @@ def cmd_web(args):
         sys.exit(1)
 
     host = args.host if hasattr(args, 'host') else "0.0.0.0"
-    port = args.port if hasattr(args, 'port') else 8000
+    port = args.port if hasattr(args, 'port') else 8888
 
     print(f"""
 🧬 AiTril Web Interface
@@ -733,8 +733,8 @@ For more information, visit: https://github.com/professai/aitril
     parser_web.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port to run the server on (default: 8000)"
+        default=8888,
+        help="Port to run the server on (default: 8888)"
     )
     parser_web.set_defaults(func=cmd_web)
 
