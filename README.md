@@ -1,5 +1,7 @@
 # 🧬 AiTril
 
+**Pronounced: "8-real"**
+
 **Multi-LLM Orchestration CLI Tool**
 
 AiTril is a neutral, open-source command-line interface that orchestrates multiple Large Language Model (LLM) providers through a single unified interface. Query OpenAI, Anthropic, and Google Gemini in parallel and compare their responses side-by-side.
