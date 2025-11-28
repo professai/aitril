@@ -274,7 +274,7 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Phase 1: Planning
+    # Phase 1: Planning - Consensus on architecture
     await manager.send_event(websocket, {
         "type": "phase_changed",
         "phase": "planning",
@@ -282,7 +282,29 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Phase 2: Implementation
+    planning_prompt = aitril.coordinator._build_planning_prompt(prompt, tech_stack, project_context)
+
+    # Stream planning phase (all agents in parallel)
+    providers = aitril.get_enabled_providers()
+    tasks = []
+    for provider in providers:
+        task = asyncio.create_task(
+            stream_provider_response(websocket, aitril, provider, planning_prompt)
+        )
+        tasks.append(task)
+    await asyncio.gather(*tasks)
+
+    # Get planning responses for next phase
+    planning_responses = {}
+    for provider in providers:
+        response = await aitril.providers[provider].ask(planning_prompt)
+        planning_responses[provider] = response
+
+    # Build consensus
+    consensus_prompt = aitril.coordinator._build_consensus_prompt(planning_prompt, planning_responses)
+    consensus = await aitril.providers[providers[0]].ask(consensus_prompt)
+
+    # Phase 2: Implementation - Sequential build
     await manager.send_event(websocket, {
         "type": "phase_changed",
         "phase": "implementation",
@@ -290,7 +312,37 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Phase 3: Review
+    implementation_prompt = aitril.coordinator._build_implementation_prompt(
+        prompt, consensus, tech_stack, project_context
+    )
+
+    # Stream implementation phase (sequential)
+    implementation_responses = {}
+    context_history = []
+
+    for provider in providers:
+        enriched_prompt = implementation_prompt
+        if context_history:
+            context_str = "\n\n".join([
+                f"[Context from {name}]: {resp[:500]}..." if len(resp) > 500
+                else f"[Context from {name}]: {resp}"
+                for name, resp in context_history
+            ])
+            enriched_prompt = (
+                f"{implementation_prompt}\n\n"
+                f"Previous agent responses for context:\n{context_str}\n\n"
+                f"Please provide your implementation, building on the above."
+            )
+
+        # Stream this provider's response
+        await stream_provider_response(websocket, aitril, provider, enriched_prompt)
+
+        # Get full response for context
+        response = await aitril.providers[provider].ask(enriched_prompt)
+        implementation_responses[provider] = response
+        context_history.append((provider, response))
+
+    # Phase 3: Review - Consensus validation
     await manager.send_event(websocket, {
         "type": "phase_changed",
         "phase": "review",
@@ -298,12 +350,18 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Execute build (this will be enhanced with event emission)
-    results = await aitril.coordinator.coordinate_code_build(
-        prompt,
-        tech_stack=tech_stack,
-        project_context=project_context
+    review_prompt = aitril.coordinator._build_review_prompt(
+        prompt, implementation_responses, tech_stack
     )
+
+    # Stream review phase (all agents in parallel)
+    tasks = []
+    for provider in providers:
+        task = asyncio.create_task(
+            stream_provider_response(websocket, aitril, provider, review_prompt)
+        )
+        tasks.append(task)
+    await asyncio.gather(*tasks)
 
     # Phase 4: Deployment (Optional)
     await manager.send_event(websocket, {
@@ -329,7 +387,12 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
     # Send build completed event (deployment is optional)
     await manager.send_event(websocket, {
         "type": "build_completed",
-        "results": results,
+        "results": {
+            "task": prompt,
+            "planning": planning_responses,
+            "implementation": implementation_responses,
+            "status": "completed"
+        },
         "timestamp": datetime.now().isoformat()
     })
 
