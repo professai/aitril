@@ -305,7 +305,28 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
         project_context=project_context
     )
 
-    # Send build completed event
+    # Phase 4: Deployment (Optional)
+    await manager.send_event(websocket, {
+        "type": "phase_changed",
+        "phase": "deployment",
+        "description": "Deployment options available",
+        "timestamp": datetime.now().isoformat()
+    })
+
+    # Send deployment options
+    await manager.send_event(websocket, {
+        "type": "deployment_options",
+        "options": [
+            {"id": "local", "name": "Local File System", "description": "Save files to local directory"},
+            {"id": "docker", "name": "Docker Container", "description": "Build and run as Docker container"},
+            {"id": "github", "name": "GitHub Pages", "description": "Deploy to GitHub Pages"},
+            {"id": "ec2", "name": "AWS EC2", "description": "Deploy to EC2 instance"},
+            {"id": "skip", "name": "Skip Deployment", "description": "Just show the code"}
+        ],
+        "timestamp": datetime.now().isoformat()
+    })
+
+    # Send build completed event (deployment is optional)
     await manager.send_event(websocket, {
         "type": "build_completed",
         "results": results,

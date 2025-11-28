@@ -3,14 +3,28 @@
 class AiTrilApp {
     constructor() {
         this.ws = null;
-        this.currentMode = 'tri';
+        this.currentMode = 'build';
         this.agents = {
-            gpt: { name: 'GPT-5.1', status: 'idle', response: '' },
-            claude: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
+            openai: { name: 'GPT-5.1', status: 'idle', response: '' },
+            anthropic: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
             gemini: { name: 'Gemini 3 Pro', status: 'idle', response: '' }
         };
         this.currentPhase = null;
         this.messages = [];
+        this.modeInfo = {
+            build: {
+                title: 'Build - Collaborative Code Generation',
+                description: 'Useful if you are trying to create or modify code with thorough planning and review. Uses a 3-phase approach: Planning (all agents collaborate), Implementation (sequential execution), and Review (all agents validate).'
+            },
+            tri: {
+                title: 'Tri-Lam - Multiple Perspectives',
+                description: 'Useful if you are trying to get diverse viewpoints on a question or problem. All agents respond in parallel and you see each provider\'s unique perspective separately.'
+            },
+            consensus: {
+                title: 'Consensus - Unified Answer',
+                description: 'Useful if you are trying to get a single best answer. All agents respond in parallel, and their responses are synthesized into one unified, well-rounded answer.'
+            }
+        };
 
         this.init();
     }
@@ -102,7 +116,48 @@ class AiTrilApp {
             case 'coordination_completed':
                 this.setAllAgentsCompleted();
                 break;
+
+            case 'deployment_options':
+                this.showDeploymentOptions(event.options);
+                break;
         }
+    }
+
+    showDeploymentOptions(options) {
+        // Add deployment selector to the messages
+        const optionsHTML = options.map(opt => `
+            <div class="deployment-option" data-id="${opt.id}">
+                <div class="deployment-option-header">
+                    <input type="radio" name="deployment" value="${opt.id}" id="deploy-${opt.id}" />
+                    <label for="deploy-${opt.id}">
+                        <strong>${opt.name}</strong>
+                    </label>
+                </div>
+                <p class="deployment-option-description">${opt.description}</p>
+            </div>
+        `).join('');
+
+        this.messages.push({
+            type: 'deployment-selector',
+            options: optionsHTML
+        });
+
+        this.renderMessages();
+        this.scrollToBottom();
+
+        // Add event listeners for radio buttons
+        setTimeout(() => {
+            document.querySelectorAll('.deployment-option input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    this.selectDeploymentTarget(e.target.value);
+                });
+            });
+        }, 100);
+    }
+
+    selectDeploymentTarget(targetId) {
+        console.log('Selected deployment target:', targetId);
+        // TODO: Send selection to backend and handle deployment config collection
     }
 
     setupEventListeners() {
@@ -112,6 +167,27 @@ class AiTrilApp {
                 this.setMode(e.target.dataset.mode);
             });
         });
+
+        // Info buttons
+        document.querySelectorAll('.info-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showModeInfo(e.target.dataset.mode);
+            });
+        });
+
+        // Close modal on background click
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                this.closeModal();
+            }
+        });
+
+        // Close button
+        const closeBtn = document.querySelector('.modal-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeModal());
+        }
 
         // Send button
         const sendBtn = document.querySelector('.send-btn');
@@ -124,6 +200,24 @@ class AiTrilApp {
                 this.sendMessage();
             }
         });
+    }
+
+    showModeInfo(mode) {
+        const info = this.modeInfo[mode];
+        if (!info) return;
+
+        const modal = document.querySelector('.modal');
+        const title = document.querySelector('.modal-title');
+        const content = document.querySelector('.modal-description');
+
+        title.textContent = info.title;
+        content.textContent = info.description;
+        modal.classList.add('active');
+    }
+
+    closeModal() {
+        const modal = document.querySelector('.modal');
+        modal.classList.remove('active');
     }
 
     setMode(mode) {
@@ -288,7 +382,8 @@ class AiTrilApp {
         const phases = [
             { key: 'planning', label: 'Planning' },
             { key: 'implementation', label: 'Implementation' },
-            { key: 'review', label: 'Review' }
+            { key: 'review', label: 'Review' },
+            { key: 'deployment', label: 'Deployment' }
         ];
 
         container.innerHTML = phases.map(phase => `
@@ -336,6 +431,15 @@ class AiTrilApp {
                                 </div>
                             </div>
                         `).join('')}
+                    </div>
+                `;
+            } else if (msg.type === 'deployment-selector') {
+                return `
+                    <div class="deployment-selector">
+                        <h3>Choose Deployment Target</h3>
+                        <div class="deployment-options">
+                            ${msg.options}
+                        </div>
                     </div>
                 `;
             }
@@ -396,11 +500,18 @@ class AiTrilApp {
             <div class="main-content">
                 <div class="chat-header">
                     <div class="mode-selector">
-                        <button class="mode-btn active" data-mode="tri">Tri-Lam</button>
-                        <button class="mode-btn" data-mode="sequential">Sequential</button>
-                        <button class="mode-btn" data-mode="consensus">Consensus</button>
-                        <button class="mode-btn" data-mode="debate">Debate</button>
-                        <button class="mode-btn" data-mode="build">Build</button>
+                        <div class="mode-option">
+                            <button class="mode-btn active" data-mode="build">Build</button>
+                            <button class="info-btn" data-mode="build" title="Learn about Build mode">ⓘ</button>
+                        </div>
+                        <div class="mode-option">
+                            <button class="mode-btn" data-mode="tri">Tri-Lam</button>
+                            <button class="info-btn" data-mode="tri" title="Learn about Tri-Lam mode">ⓘ</button>
+                        </div>
+                        <div class="mode-option">
+                            <button class="mode-btn" data-mode="consensus">Consensus</button>
+                            <button class="info-btn" data-mode="consensus" title="Learn about Consensus mode">ⓘ</button>
+                        </div>
                     </div>
                 </div>
 
@@ -415,6 +526,15 @@ class AiTrilApp {
                         ></textarea>
                         <button class="send-btn">Send</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Modal -->
+            <div class="modal">
+                <div class="modal-content">
+                    <button class="modal-close">×</button>
+                    <h2 class="modal-title"></h2>
+                    <p class="modal-description"></p>
                 </div>
             </div>
         `;
