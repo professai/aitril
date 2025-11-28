@@ -99,8 +99,8 @@ def load_config_from_env() -> Optional[dict]:
             "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
         }
 
-    # Check for Gemini
-    gemini_key = os.environ.get("GEMINI_API_KEY")
+    # Check for Gemini (uses GOOGLE_API_KEY per Google's SDK)
+    gemini_key = os.environ.get("GOOGLE_API_KEY")
     if gemini_key:
         config["providers"]["gemini"] = {
             "enabled": True,
