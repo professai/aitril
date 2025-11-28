@@ -89,6 +89,11 @@ class AiTrilApp {
                 this.setAgentStatus(event.agent, 'completed');
                 break;
 
+            case 'agent_error':
+                this.setAgentStatus(event.agent, 'error');
+                console.error('Agent error:', event.agent, event.error);
+                break;
+
             case 'trilam_started':
                 this.resetAgents();
                 break;
@@ -119,6 +124,10 @@ class AiTrilApp {
 
             case 'deployment_options':
                 this.showDeploymentOptions(event.options);
+                break;
+
+            case 'status_message':
+                this.addStatusMessage(event.message);
                 break;
         }
     }
@@ -254,6 +263,16 @@ class AiTrilApp {
     addUserMessage(text) {
         this.messages.push({
             type: 'user',
+            content: text,
+            timestamp: new Date()
+        });
+        this.renderMessages();
+        this.scrollToBottom();
+    }
+
+    addStatusMessage(text) {
+        this.messages.push({
+            type: 'status',
             content: text,
             timestamp: new Date()
         });
@@ -439,6 +458,14 @@ class AiTrilApp {
                         <h3>Choose Deployment Target</h3>
                         <div class="deployment-options">
                             ${msg.options}
+                        </div>
+                    </div>
+                `;
+            } else if (msg.type === 'status') {
+                return `
+                    <div class="message status">
+                        <div class="message-content status-message">
+                            ${this.escapeHtml(msg.content)}
                         </div>
                     </div>
                 `;

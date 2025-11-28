@@ -204,7 +204,7 @@ async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str):
 
 
 async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provider: str, prompt: str):
-    """Stream response from a single provider."""
+    """Stream response from a single provider with error handling."""
     # Send agent started event
     await manager.send_event(websocket, {
         "type": "agent_started",
@@ -212,24 +212,48 @@ async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provide
         "timestamp": datetime.now().isoformat()
     })
 
-    # Stream response
-    full_response = ""
-    async for chunk in aitril.ask_single_stream(provider, prompt):
-        full_response += chunk
+    try:
+        # Stream response
+        full_response = ""
+        async for chunk in aitril.ask_single_stream(provider, prompt):
+            full_response += chunk
+            await manager.send_event(websocket, {
+                "type": "agent_chunk",
+                "agent": provider,
+                "chunk": chunk,
+                "timestamp": datetime.now().isoformat()
+            })
+
+        # Send completion event
+        await manager.send_event(websocket, {
+            "type": "agent_completed",
+            "agent": provider,
+            "response": full_response,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        # Send error event
+        error_message = f"Error from {provider}: {str(e)}"
+        await manager.send_event(websocket, {
+            "type": "agent_error",
+            "agent": provider,
+            "error": error_message,
+            "timestamp": datetime.now().isoformat()
+        })
+        # Send a chunk with the error so it appears in the UI
         await manager.send_event(websocket, {
             "type": "agent_chunk",
             "agent": provider,
-            "chunk": chunk,
+            "chunk": f"⚠️ {error_message}",
             "timestamp": datetime.now().isoformat()
         })
-
-    # Send completion event
-    await manager.send_event(websocket, {
-        "type": "agent_completed",
-        "agent": provider,
-        "response": full_response,
-        "timestamp": datetime.now().isoformat()
-    })
+        # Still mark as completed so UI doesn't hang
+        await manager.send_event(websocket, {
+            "type": "agent_completed",
+            "agent": provider,
+            "response": error_message,
+            "timestamp": datetime.now().isoformat()
+        })
 
 
 async def handle_coordination(websocket: WebSocket, aitril: AiTril, prompt: str, mode: str):
@@ -381,6 +405,13 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
             {"id": "ec2", "name": "AWS EC2", "description": "Deploy to EC2 instance"},
             {"id": "skip", "name": "Skip Deployment", "description": "Just show the code"}
         ],
+        "timestamp": datetime.now().isoformat()
+    })
+
+    # Send status message
+    await manager.send_event(websocket, {
+        "type": "status_message",
+        "message": "✅ Build complete! Select a deployment option above, or choose 'Skip Deployment' to finish.",
         "timestamp": datetime.now().isoformat()
     })
 

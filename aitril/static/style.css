@@ -407,6 +407,19 @@ body {
     background: var(--bg-agent);
 }
 
+/* Status Messages */
+.message.status {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.message-content.status-message {
+    background: #e8f5e9;
+    border-left: 4px solid var(--status-active);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
 /* Agent Response Group */
 .agent-response-group {
     display: flex;
