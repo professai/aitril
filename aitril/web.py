@@ -115,6 +115,14 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Receive message from client
             data = await websocket.receive_json()
+
+            # Handle deployment selection messages
+            if data.get("type") == "deployment_selected":
+                target = data.get("target")
+                await handle_deployment(websocket, target)
+                continue
+
+            # Handle regular chat messages
             prompt = data.get("prompt")
             mode = data.get("mode", "tri")
             provider = data.get("provider")
@@ -424,6 +432,70 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
             "implementation": implementation_responses,
             "status": "completed"
         },
+        "timestamp": datetime.now().isoformat()
+    })
+
+
+async def handle_deployment(websocket: WebSocket, target: str):
+    """Handle deployment to selected target."""
+    deployment_info = {
+        "local": {
+            "name": "Local File System",
+            "description": "Files will be saved to your current directory",
+            "action": "save_files"
+        },
+        "docker": {
+            "name": "Docker Container",
+            "description": "Building Docker container with your code",
+            "action": "build_docker"
+        },
+        "github": {
+            "name": "GitHub Pages",
+            "description": "Deploying to GitHub Pages (requires GitHub repo)",
+            "action": "deploy_github"
+        },
+        "ec2": {
+            "name": "AWS EC2",
+            "description": "Deploying to EC2 instance (requires AWS credentials)",
+            "action": "deploy_ec2"
+        },
+        "skip": {
+            "name": "Skip Deployment",
+            "description": "Code generation complete - no deployment",
+            "action": "skip"
+        }
+    }
+
+    info = deployment_info.get(target, deployment_info["skip"])
+
+    # Send acknowledgment
+    await manager.send_event(websocket, {
+        "type": "deployment_started",
+        "target": target,
+        "name": info["name"],
+        "timestamp": datetime.now().isoformat()
+    })
+
+    # For now, just send a completion message
+    # In the future, this would actually perform the deployment
+    if target == "skip":
+        await manager.send_event(websocket, {
+            "type": "status_message",
+            "message": "✅ Build complete! Code is ready to use.",
+            "timestamp": datetime.now().isoformat()
+        })
+    else:
+        await manager.send_event(websocket, {
+            "type": "status_message",
+            "message": f"🚀 Deployment to {info['name']} initiated! (Implementation coming soon)",
+            "timestamp": datetime.now().isoformat()
+        })
+
+    # Send deployment completed event
+    await manager.send_event(websocket, {
+        "type": "deployment_completed",
+        "target": target,
+        "status": "acknowledged",
         "timestamp": datetime.now().isoformat()
     })
 

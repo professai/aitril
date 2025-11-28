@@ -166,7 +166,17 @@ class AiTrilApp {
 
     selectDeploymentTarget(targetId) {
         console.log('Selected deployment target:', targetId);
-        // TODO: Send selection to backend and handle deployment config collection
+
+        // Send deployment selection to backend
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'deployment_selected',
+                target: targetId
+            }));
+
+            // Show status message
+            this.addStatusMessage(`🚀 Deploying to ${targetId}...`);
+        }
     }
 
     setupEventListeners() {
