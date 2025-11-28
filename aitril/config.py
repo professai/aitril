@@ -96,7 +96,7 @@ def load_config_from_env() -> Optional[dict]:
         config["providers"]["anthropic"] = {
             "enabled": True,
             "api_key": anthropic_key,
-            "model": os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+            "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
         }
 
     # Check for Gemini
@@ -183,7 +183,7 @@ def init_wizard() -> Optional[dict]:
         config["providers"]["anthropic"] = {
             "enabled": True,
             "api_key": api_key if api_key else None,
-            "model": "claude-3-haiku-20240307"
+            "model": "claude-haiku-4-5-20251001"
         }
         print("✓ Anthropic configured")
     else:

@@ -145,12 +145,13 @@ class OpenAIProvider(Provider):
         loop = asyncio.get_running_loop()
 
         def _sync_call():
-            response = client.chat.completions.create(
+            response = client.responses.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000
+                input=[{"role": "user", "content": prompt}],
+                text={"format": {"type": "text"}},
+                max_output_tokens=1000
             )
-            return response.choices[0].message.content
+            return response.output_text
 
         result = await loop.run_in_executor(None, _sync_call)
         return result or ""
@@ -168,16 +169,20 @@ class OpenAIProvider(Provider):
         # Use native async client for true async streaming
         client = openai.AsyncOpenAI(api_key=self.api_key)
 
-        stream = await client.chat.completions.create(
+        stream = await client.responses.create(
             model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000,
+            input=[{"role": "user", "content": prompt}],
+            text={"format": {"type": "text"}},
+            max_output_tokens=1000,
             stream=True
         )
 
         async for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                yield chunk.choices[0].delta.content
+            # The responses API uses event-based streaming
+            # Text content comes in response.output_text.delta events
+            if hasattr(chunk, 'type') and chunk.type == 'response.output_text.delta':
+                if hasattr(chunk, 'delta') and chunk.delta:
+                    yield chunk.delta
 
 
 class AnthropicProvider(Provider):

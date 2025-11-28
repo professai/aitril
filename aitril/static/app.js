@@ -5,8 +5,8 @@ class AiTrilApp {
         this.ws = null;
         this.currentMode = 'tri';
         this.agents = {
-            gpt: { name: 'GPT-5.1', status: 'idle', response: '' },
-            claude: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
+            openai: { name: 'GPT-5.1', status: 'idle', response: '' },
+            anthropic: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
             gemini: { name: 'Gemini 3 Pro', status: 'idle', response: '' }
         };
         this.currentPhase = null;
