@@ -203,8 +203,12 @@ async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str):
     })
 
 
-async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provider: str, prompt: str):
-    """Stream response from a single provider with error handling."""
+async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provider: str, prompt: str) -> str:
+    """Stream response from a single provider with error handling.
+
+    Returns:
+        The full response text from the provider.
+    """
     # Send agent started event
     await manager.send_event(websocket, {
         "type": "agent_started",
@@ -231,6 +235,7 @@ async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provide
             "response": full_response,
             "timestamp": datetime.now().isoformat()
         })
+        return full_response
     except Exception as e:
         # Send error event
         error_message = f"Error from {provider}: {str(e)}"
@@ -254,6 +259,7 @@ async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provide
             "response": error_message,
             "timestamp": datetime.now().isoformat()
         })
+        return error_message
 
 
 async def handle_coordination(websocket: WebSocket, aitril: AiTril, prompt: str, mode: str):
@@ -308,7 +314,7 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
 
     planning_prompt = aitril.coordinator._build_planning_prompt(prompt, tech_stack, project_context)
 
-    # Stream planning phase (all agents in parallel)
+    # Stream planning phase (all agents in parallel) and capture responses
     providers = aitril.get_enabled_providers()
     tasks = []
     for provider in providers:
@@ -316,13 +322,10 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
             stream_provider_response(websocket, aitril, provider, planning_prompt)
         )
         tasks.append(task)
-    await asyncio.gather(*tasks)
 
-    # Get planning responses for next phase
-    planning_responses = {}
-    for provider in providers:
-        response = await aitril.providers[provider].ask(planning_prompt)
-        planning_responses[provider] = response
+    # Gather responses from streaming (no duplicate API calls!)
+    planning_responses_list = await asyncio.gather(*tasks)
+    planning_responses = dict(zip(providers, planning_responses_list))
 
     # Build consensus
     consensus_prompt = aitril.coordinator._build_consensus_prompt(planning_prompt, planning_responses)
@@ -358,11 +361,8 @@ async def handle_build(websocket: WebSocket, aitril: AiTril, prompt: str):
                 f"Please provide your implementation, building on the above."
             )
 
-        # Stream this provider's response
-        await stream_provider_response(websocket, aitril, provider, enriched_prompt)
-
-        # Get full response for context
-        response = await aitril.providers[provider].ask(enriched_prompt)
+        # Stream this provider's response and capture it (no duplicate API call!)
+        response = await stream_provider_response(websocket, aitril, provider, enriched_prompt)
         implementation_responses[provider] = response
         context_history.append((provider, response))
 
