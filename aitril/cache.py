@@ -19,15 +19,10 @@ def get_cache_dir() -> Path:
     Get the cache directory path.
 
     Returns:
-        Path to cache directory (~/.cache/aitril or platform equivalent)
+        Path to cache directory (~/.aitril for unified CLI/web access)
     """
-    if sys.platform == "win32":
-        cache_dir = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "aitril" / "cache"
-    elif sys.platform == "darwin":
-        cache_dir = Path.home() / "Library" / "Caches" / "aitril"
-    else:
-        cache_dir = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "aitril"
-
+    # Unified location for both CLI and web interface
+    cache_dir = Path.home() / ".aitril"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
@@ -53,10 +48,14 @@ class SessionCache:
         Initialize session cache.
 
         Args:
-            session_name: Name of session (e.g., 'chat', 'build'). Auto-generated if None.
+            session_name: Name of session. Defaults to 'main' for shared CLI/web history.
+                         Set to 'new' to auto-generate a unique session name.
         """
         self.cache_file = get_cache_file()
-        self.session_name = session_name or self._generate_session_name()
+        if session_name == 'new':
+            self.session_name = self._generate_session_name()
+        else:
+            self.session_name = session_name or "main"  # Default to unified session
         self.data = self._load_cache()
 
     def _generate_session_name(self) -> str:
@@ -358,3 +357,42 @@ class SessionCache:
         """
         session = self.get_session_data()
         return session.get("build_artifacts", [])
+
+    def log_settings_change(self, setting_type: str, old_value: Any, new_value: Any, reason: Optional[str] = None) -> None:
+        """
+        Log a settings change event in the session history.
+
+        This enables tracking how settings evolved during a session,
+        allowing for richer responses and interesting build evolutions.
+
+        Args:
+            setting_type: Type of setting changed (e.g., 'model', 'provider', 'planner')
+            old_value: Previous value
+            new_value: New value
+            reason: Optional reason for the change
+        """
+        session = self.get_session_data()
+
+        if "settings_changes" not in session:
+            session["settings_changes"] = []
+
+        change_event = {
+            "timestamp": datetime.now().isoformat(),
+            "type": setting_type,
+            "old_value": old_value,
+            "new_value": new_value,
+            "reason": reason
+        }
+
+        session["settings_changes"].append(change_event)
+        self._save_cache()
+
+    def get_settings_evolution(self) -> List[Dict[str, Any]]:
+        """
+        Get the evolution of settings changes during this session.
+
+        Returns:
+            List of settings change events
+        """
+        session = self.get_session_data()
+        return session.get("settings_changes", [])

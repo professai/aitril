@@ -3,6 +3,9 @@ Configuration management for AiTril.
 
 Handles loading, saving, and initializing provider configuration
 via an interactive wizard.
+
+NOTE: This module now uses settings.json (via settings.py) instead of config.toml
+for unified configuration between CLI and web interface.
 """
 
 import os
@@ -10,65 +13,85 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib  # type: ignore
-
-import tomli_w
+from .settings import Settings
 
 
 def get_config_path() -> Path:
     """
     Determine the configuration file path.
 
-    Returns the path to ~/.config/aitril/config.toml on Linux/macOS,
-    or appropriate location on Windows.
+    Now returns path to ~/.aitril/settings.json for unified CLI/web configuration.
+    Legacy config.toml files are automatically migrated.
     """
-    if sys.platform == "win32":
-        config_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "aitril"
-    else:
-        config_dir = Path.home() / ".config" / "aitril"
-
+    # New unified location
+    config_dir = Path.home() / ".aitril"
     config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir / "config.toml"
+    return config_dir / "settings.json"
 
 
 def load_config() -> Optional[dict]:
     """
-    Load configuration from TOML file.
+    Load configuration from settings.json using Settings class.
 
     Returns:
-        Dictionary containing configuration, or None if file doesn't exist.
+        Dictionary containing configuration in legacy format for backward compatibility,
+        or None if no providers are configured.
     """
-    config_path = get_config_path()
-
-    if not config_path.exists():
-        return None
-
     try:
-        with open(config_path, "rb") as f:
-            return tomllib.load(f)
+        settings = Settings()
+        all_settings = settings.export_settings()
+
+        # Convert new format to legacy format for backward compatibility
+        providers = all_settings.get('llm_providers', {})
+        if not providers:
+            return None
+
+        # Map new format to old format
+        legacy_config = {"providers": {}}
+        for provider_id, provider_config in providers.items():
+            legacy_config["providers"][provider_id] = {
+                "enabled": provider_config.get("enabled", False),
+                "api_key": None,  # API keys are read from env vars
+                "model": provider_config.get("model", "")
+            }
+
+        return legacy_config
     except Exception as e:
-        print(f"Error loading config from {config_path}: {e}")
+        print(f"Error loading config: {e}")
         return None
 
 
 def save_config(cfg: dict) -> None:
     """
-    Save configuration to TOML file.
+    Save configuration to settings.json using Settings class.
 
     Args:
-        cfg: Configuration dictionary to save.
+        cfg: Configuration dictionary in legacy format to save.
     """
-    config_path = get_config_path()
-
     try:
-        with open(config_path, "wb") as f:
-            tomli_w.dump(cfg, f)
-        print(f"Configuration saved to {config_path}")
+        settings = Settings()
+
+        # Convert legacy format to new format
+        if "providers" in cfg:
+            for provider_id, provider_config in cfg["providers"].items():
+                # Get existing provider config or create new one
+                existing = settings.get_llm_providers().get(provider_id, {})
+
+                # Update with legacy values
+                new_config = {
+                    "name": existing.get("name", provider_id.title()),
+                    "enabled": provider_config.get("enabled", False),
+                    "api_key_env": existing.get("api_key_env", f"{provider_id.upper()}_API_KEY"),
+                    "model": provider_config.get("model", existing.get("model", "")),
+                    "base_url": existing.get("base_url"),
+                    "custom": existing.get("custom", False)
+                }
+
+                settings.update_provider(provider_id, new_config)
+
+        print(f"Configuration saved to {settings.settings_file}")
     except Exception as e:
-        print(f"Error saving config to {config_path}: {e}")
+        print(f"Error saving config: {e}")
         sys.exit(1)
 
 
@@ -142,6 +165,7 @@ def init_wizard() -> Optional[dict]:
 
     Guides the user through configuring OpenAI, Anthropic, and Gemini providers.
     Warns if fewer than 2 providers are enabled.
+    Now uses Settings class for unified CLI/web configuration.
 
     Returns:
         Configuration dictionary if successful, None if user cancels.
@@ -152,6 +176,7 @@ def init_wizard() -> Optional[dict]:
     print("\nAiTril lets you query multiple LLM providers in parallel.")
     print("For the best experience (tri-lam mode), configure at least 2 providers.\n")
 
+    settings = Settings()
     config = {"providers": {}}
 
     # OpenAI Configuration

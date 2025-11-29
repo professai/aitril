@@ -132,10 +132,13 @@ def cmd_tri(args):
     # Determine coordination strategy
     strategy = args.coordinate if hasattr(args, 'coordinate') else CoordinationStrategy.PARALLEL
 
+    # Determine initial planner
+    initial_planner = args.planner if hasattr(args, 'planner') else "none"
+
     # Run async tri query
     try:
         display.task_start(f"Querying all providers ({strategy} mode)")
-        results = asyncio.run(aitril.ask_tri(args.prompt, strategy=strategy))
+        results = asyncio.run(aitril.ask_tri(args.prompt, strategy=strategy, initial_planner=initial_planner))
         display.task_complete()
 
         # Display results based on strategy
@@ -608,6 +611,13 @@ For more information, visit: https://github.com/professai/aitril
         choices=["parallel", "sequential", "consensus", "debate", "specialist"],
         default="parallel",
         help="Coordination strategy for multi-agent collaboration"
+    )
+    parser_tri.add_argument(
+        "--planner",
+        "-p",
+        choices=["none", "openai", "anthropic", "gemini"],
+        default="none",
+        help="Initial planner agent (creates plan first, others improve it). 'none' for chaotic collaboration."
     )
     parser_tri.add_argument(
         "--session",

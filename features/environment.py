@@ -2,6 +2,8 @@
 Behave environment configuration for AiTril BDD tests
 """
 import asyncio
+import os
+from pathlib import Path
 
 
 def before_all(context):
@@ -10,12 +12,30 @@ def before_all(context):
     context.loop = asyncio.new_event_loop()
     asyncio.set_event_loop(context.loop)
 
+    # Initialize unified settings from environment variables
+    # Tests use environment variables, ensuring settings.json is created
+    from aitril.settings import Settings
+    from aitril.cache import SessionCache
+
+    context.settings = Settings()
+    context.cache = SessionCache(session_name='test')
+
+    # Store original settings path for cleanup
+    context.test_settings_dir = Path.home() / '.aitril'
+
 
 def after_all(context):
     """Clean up after all tests"""
     # Close event loop
     if hasattr(context, 'loop'):
         context.loop.close()
+
+    # Clean up test session from cache
+    if hasattr(context, 'cache'):
+        try:
+            context.cache.clear_session('test')
+        except:
+            pass
 
 
 def before_scenario(context, scenario):

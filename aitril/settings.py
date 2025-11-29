@@ -115,6 +115,12 @@ class Settings:
                 "log_level": "info",
                 "auto_save": True,
                 "initial_planner": "none"
+            },
+            "chat_history": {
+                "enabled": True,
+                "persist_across_cli_web": True,
+                "default_session": "main",
+                "max_history_items": 100
             }
         }
 
@@ -257,4 +263,40 @@ class Settings:
             return self.save()
         except Exception as e:
             print(f"Error importing settings: {e}")
+            return False
+
+    def get_chat_history_settings(self) -> Dict:
+        """Get chat history settings"""
+        return self.settings.get('chat_history', {
+            "enabled": True,
+            "persist_across_cli_web": True,
+            "default_session": "main",
+            "max_history_items": 100
+        })
+
+    def update_chat_history_settings(self, config: Dict) -> bool:
+        """Update chat history settings
+
+        Args:
+            config: Chat history settings dictionary
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self.settings['chat_history'] = config
+        return self.save()
+
+    def clear_chat_history(self) -> bool:
+        """Clear all chat history from cache
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from .cache import SessionCache
+            cache = SessionCache()
+            cache.clear_all()
+            return True
+        except Exception as e:
+            print(f"Error clearing chat history: {e}")
             return False
