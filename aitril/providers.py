@@ -330,7 +330,8 @@ class OllamaProvider(Provider):
         """Get Ollama base URL from config or environment."""
         base_url = self.config.get("base_url")
         if not base_url:
-            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+            # Check both OLLAMA_API_URL and OLLAMA_BASE_URL for compatibility
+            base_url = os.environ.get("OLLAMA_API_URL") or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         return base_url
 
     async def ask(self, prompt: str) -> str:

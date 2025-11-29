@@ -168,10 +168,43 @@ class AiTrilApp {
 
             case 'coordination_started':
                 this.resetAgents();
+                this.showStatus(`Starting ${event.mode} mode...`, 'info');
+                break;
+
+            case 'consensus_progress':
+                this.messages.push({
+                    type: 'status',
+                    content: `⏳ ${event.message}`,
+                    timestamp: new Date()
+                });
+                this.renderMessages();
+                this.scrollToBottom();
                 break;
 
             case 'coordination_completed':
                 this.setAllAgentsCompleted();
+                // Display the results
+                if (event.results) {
+                    let content = '';
+                    if (event.results.consensus) {
+                        // Consensus mode - show consensus summary
+                        content = `**Consensus Response:**\n\n${event.results.consensus}`;
+                    } else if (event.results.final_response) {
+                        // Sequential mode
+                        content = event.results.final_response;
+                    } else {
+                        // Generic coordination result
+                        content = `\`\`\`json\n${JSON.stringify(event.results, null, 2)}\n\`\`\``;
+                    }
+
+                    this.messages.push({
+                        type: 'assistant',
+                        content: content,
+                        timestamp: new Date()
+                    });
+                    this.renderMessages();
+                    this.scrollToBottom();
+                }
                 break;
 
             case 'deployment_options':
@@ -572,6 +605,22 @@ class AiTrilApp {
                         <div class="deployment-options">
                             ${msg.options}
                         </div>
+                    </div>
+                `;
+            } else if (msg.type === 'status') {
+                return `
+                    <div class="message status">
+                        <div class="message-content">${this.escapeHtml(msg.content)}</div>
+                    </div>
+                `;
+            } else if (msg.type === 'assistant') {
+                return `
+                    <div class="message assistant">
+                        <div class="message-header">
+                            <div class="message-avatar assistant">A</div>
+                            <span>Assistant</span>
+                        </div>
+                        <div class="message-content">${this.formatResponse(msg.content)}</div>
                     </div>
                 `;
             }

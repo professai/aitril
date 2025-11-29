@@ -48,11 +48,31 @@ def load_config() -> Optional[dict]:
 
         # Map new format to old format
         legacy_config = {"providers": {}}
+
+        # Model environment variable mapping
+        model_env_vars = {
+            "openai": "OPENAI_MODEL",
+            "anthropic": "ANTHROPIC_MODEL",
+            "gemini": "GEMINI_MODEL",
+            "ollama": "OLLAMA_MODEL",
+            "llamacpp": "LLAMACPP_MODEL",
+        }
+
         for provider_id, provider_config in providers.items():
+            # Get model from settings.json
+            model = provider_config.get("model", "")
+
+            # Override with .env if available (PRIORITY: .env > settings.json)
+            env_var = model_env_vars.get(provider_id)
+            if env_var:
+                env_model = os.environ.get(env_var)
+                if env_model:
+                    model = env_model
+
             legacy_config["providers"][provider_id] = {
                 "enabled": provider_config.get("enabled", False),
                 "api_key": None,  # API keys are read from env vars
-                "model": provider_config.get("model", "")
+                "model": model
             }
 
         return legacy_config

@@ -69,6 +69,7 @@ class ConnectionManager:
 
     async def send_event(self, websocket: WebSocket, event: Dict[str, Any]):
         """Send event to specific connection."""
+        logger.info(f"📤 Sending event: {event.get('type', 'unknown')}")
         await websocket.send_json(event)
 
     async def broadcast(self, event: Dict[str, Any]):
@@ -133,6 +134,23 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
 
     try:
+        # Reload .env file on every connection to ensure fresh API keys
+        from dotenv import load_dotenv
+        project_root = Path(__file__).parent.parent
+        env_file = project_root / ".env"
+        if env_file.exists():
+            load_dotenv(env_file, override=True)
+            logger.info(f"🔄 Reloaded .env from {env_file}")
+            # Log API key prefixes to verify they're loaded
+            api_key_status = {}
+            for key_name in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"]:
+                key_value = os.environ.get(key_name)
+                if key_value:
+                    api_key_status[key_name] = key_value[:15] + "..."
+                else:
+                    api_key_status[key_name] = "NOT SET"
+            logger.info(f"📋 API Keys loaded: {api_key_status}")
+
         # Send initial connection event
         await manager.send_event(websocket, {
             "type": "connected",
@@ -144,6 +162,14 @@ async def websocket_endpoint(websocket: WebSocket):
         if config is None:
             config = load_config_from_env()
 
+        # Log provider models to verify .env priority
+        if config and "providers" in config:
+            models_used = {}
+            for provider_id, provider_config in config["providers"].items():
+                if provider_config.get("enabled"):
+                    models_used[provider_id] = provider_config.get("model", "N/A")
+            logger.info(f"🤖 Models configured: {models_used}")
+
         if config is None:
             await manager.send_event(websocket, {
                 "type": "error",
@@ -153,45 +179,59 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
         while True:
-            # Receive message from client
-            data = await websocket.receive_json()
+            try:
+                # Receive message from client
+                data = await websocket.receive_json()
+                logger.info(f"Received WebSocket message: {data}")
 
-            # Handle deployment selection messages
-            if data.get("type") == "deployment_selected":
-                target = data.get("target")
-                await handle_deployment(websocket, target)
-                continue
+                # Handle deployment selection messages
+                if data.get("type") == "deployment_selected":
+                    target = data.get("target")
+                    await handle_deployment(websocket, target)
+                    continue
 
-            # Handle regular chat messages
-            prompt = data.get("prompt")
-            mode = data.get("mode", "tri")
-            provider = data.get("provider")
-            session = data.get("session")
+                # Handle regular chat messages
+                prompt = data.get("prompt")
+                mode = data.get("mode", "tri")
+                provider = data.get("provider")
+                session = data.get("session")
 
-            # Send acknowledgment
-            await manager.send_event(websocket, {
-                "type": "message_received",
-                "prompt": prompt,
-                "mode": mode,
-                "timestamp": datetime.now().isoformat()
-            })
+                logger.info(f"Processing {mode} request with prompt: {prompt[:50]}...")
 
-            # Create AiTril instance
-            aitril = AiTril(config, session_name=session, use_cache=True)
+                # Send acknowledgment
+                await manager.send_event(websocket, {
+                    "type": "message_received",
+                    "prompt": prompt,
+                    "mode": mode,
+                    "timestamp": datetime.now().isoformat()
+                })
 
-            # Get initial planner setting
-            general_settings = settings_manager.get_general_settings()
-            initial_planner = general_settings.get("initial_planner", "none")
+                # Create AiTril instance
+                aitril = AiTril(config, session_name=session, use_cache=True)
 
-            # Execute based on mode
-            if mode == "ask" and provider:
-                await handle_ask(websocket, aitril, prompt, provider)
-            elif mode == "tri":
-                await handle_tri(websocket, aitril, prompt, initial_planner)
-            elif mode in ["sequential", "consensus", "debate"]:
-                await handle_coordination(websocket, aitril, prompt, mode)
-            elif mode == "build":
-                await handle_build(websocket, aitril, prompt)
+                # Get initial planner setting
+                general_settings = settings_manager.get_general_settings()
+                initial_planner = general_settings.get("initial_planner", "none")
+
+                # Execute based on mode
+                if mode == "ask" and provider:
+                    await handle_ask(websocket, aitril, prompt, provider)
+                elif mode == "tri":
+                    await handle_tri(websocket, aitril, prompt, initial_planner)
+                elif mode in ["sequential", "consensus", "debate"]:
+                    await handle_coordination(websocket, aitril, prompt, mode)
+                elif mode == "build":
+                    await handle_build(websocket, aitril, prompt)
+
+            except WebSocketDisconnect:
+                raise
+            except Exception as e:
+                logger.error(f"Error processing message: {e}", exc_info=True)
+                await manager.send_event(websocket, {
+                    "type": "error",
+                    "message": f"Error: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -227,7 +267,11 @@ async def handle_ask(websocket: WebSocket, aitril: AiTril, prompt: str, provider
 
 
 async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str, initial_planner: str = "none"):
-    """Handle tri-lam mode with parallel agent visualization or planner-first mode."""
+    """Handle tri-lam mode with parallel agent visualization or planner-first mode.
+
+    ALWAYS streams responses token-by-token. If initial_planner is set, stream planner first,
+    then stream other providers in parallel. If no planner, stream all providers in parallel.
+    """
     providers = aitril.get_enabled_providers()
 
     # Send tri-lam started event
@@ -238,47 +282,25 @@ async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str, initial_
         "timestamp": datetime.now().isoformat()
     })
 
-    # If using planner-first mode, use non-streaming orchestrator
+    # If using planner-first mode, stream planner first, then others
     if initial_planner != "none" and initial_planner in providers:
-        # Send planner started event
-        await manager.send_event(websocket, {
-            "type": "agent_started",
-            "agent": initial_planner,
-            "role": "planner",
-            "timestamp": datetime.now().isoformat()
-        })
+        # Stream planner response first
+        await stream_provider_response(websocket, aitril, initial_planner, prompt, role="planner")
 
-        # Get responses using planner-first logic
-        responses = await aitril.ask_tri(prompt, initial_planner=initial_planner)
+        # Then stream all other providers in parallel
+        other_providers = [p for p in providers if p != initial_planner]
+        tasks = []
+        for provider in other_providers:
+            task = asyncio.create_task(
+                stream_provider_response(websocket, aitril, provider, prompt, role="builder")
+            )
+            tasks.append(task)
 
-        # Send planner response first
-        if initial_planner in responses:
-            await manager.send_event(websocket, {
-                "type": "agent_completed",
-                "agent": initial_planner,
-                "role": "planner",
-                "response": responses[initial_planner],
-                "timestamp": datetime.now().isoformat()
-            })
-
-        # Send other responses
-        for provider, response in responses.items():
-            if provider != initial_planner:
-                await manager.send_event(websocket, {
-                    "type": "agent_started",
-                    "agent": provider,
-                    "role": "builder",
-                    "timestamp": datetime.now().isoformat()
-                })
-                await manager.send_event(websocket, {
-                    "type": "agent_completed",
-                    "agent": provider,
-                    "role": "builder",
-                    "response": response,
-                    "timestamp": datetime.now().isoformat()
-                })
+        # Wait for all other providers to complete
+        if tasks:
+            await asyncio.gather(*tasks)
     else:
-        # Use parallel streaming mode (original behavior)
+        # Stream all providers in parallel (original behavior)
         tasks = []
         for provider in providers:
             task = asyncio.create_task(
@@ -296,18 +318,28 @@ async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str, initial_
     })
 
 
-async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provider: str, prompt: str) -> str:
+async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provider: str, prompt: str, role: str = None) -> str:
     """Stream response from a single provider with error handling.
+
+    Args:
+        websocket: WebSocket connection
+        aitril: AiTril instance
+        provider: Provider name
+        prompt: User prompt
+        role: Optional role ("planner", "builder", or None)
 
     Returns:
         The full response text from the provider.
     """
     # Send agent started event
-    await manager.send_event(websocket, {
+    event = {
         "type": "agent_started",
         "agent": provider,
         "timestamp": datetime.now().isoformat()
-    })
+    }
+    if role:
+        event["role"] = role
+    await manager.send_event(websocket, event)
 
     try:
         # Stream response
@@ -322,12 +354,15 @@ async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provide
             })
 
         # Send completion event
-        await manager.send_event(websocket, {
+        completion_event = {
             "type": "agent_completed",
             "agent": provider,
             "response": full_response,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+        if role:
+            completion_event["role"] = role
+        await manager.send_event(websocket, completion_event)
         return full_response
     except Exception as e:
         # Send error event
@@ -346,25 +381,20 @@ async def stream_provider_response(websocket: WebSocket, aitril: AiTril, provide
             "timestamp": datetime.now().isoformat()
         })
         # Still mark as completed so UI doesn't hang
-        await manager.send_event(websocket, {
+        error_completion_event = {
             "type": "agent_completed",
             "agent": provider,
             "response": error_message,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+        if role:
+            error_completion_event["role"] = role
+        await manager.send_event(websocket, error_completion_event)
         return error_message
 
 
 async def handle_coordination(websocket: WebSocket, aitril: AiTril, prompt: str, mode: str):
     """Handle coordination modes with phase visualization."""
-    # Map mode to strategy
-    strategy_map = {
-        "sequential": CoordinationStrategy.SEQUENTIAL,
-        "consensus": CoordinationStrategy.CONSENSUS,
-        "debate": CoordinationStrategy.DEBATE
-    }
-    strategy = strategy_map.get(mode)
-
     # Send coordination started event
     await manager.send_event(websocket, {
         "type": "coordination_started",
@@ -372,8 +402,35 @@ async def handle_coordination(websocket: WebSocket, aitril: AiTril, prompt: str,
         "timestamp": datetime.now().isoformat()
     })
 
-    # Execute coordination (this will be enhanced with event emission)
-    results = await aitril.coordinator.coordinate(prompt, strategy)
+    # Execute coordination based on mode
+    logger.info(f"Starting {mode} coordination...")
+    if mode == "sequential":
+        results = await aitril.coordinator.coordinate_sequential(prompt)
+    elif mode == "consensus":
+        logger.info("Calling coordinate_consensus...")
+        # Send progress update
+        providers = aitril.get_enabled_providers()
+        await manager.send_event(websocket, {
+            "type": "consensus_progress",
+            "message": f"Gathering responses from {len(providers)} providers...",
+            "timestamp": datetime.now().isoformat()
+        })
+        results = await aitril.coordinator.coordinate_consensus(prompt)
+        logger.info(f"Consensus results type: {type(results)}")
+        logger.info(f"Consensus results keys: {results.keys() if isinstance(results, dict) else 'not a dict'}")
+        if isinstance(results, dict) and 'consensus' in results:
+            logger.info(f"Consensus text length: {len(results['consensus'])}")
+        # Send synthesis progress
+        await manager.send_event(websocket, {
+            "type": "consensus_progress",
+            "message": "Synthesizing consensus from all responses...",
+            "timestamp": datetime.now().isoformat()
+        })
+    elif mode == "debate":
+        results = await aitril.coordinator.coordinate_debate(prompt)
+    else:
+        results = {"error": f"Unknown coordination mode: {mode}"}
+    logger.info(f"{mode} coordination completed")
 
     # Send coordination completed event
     await manager.send_event(websocket, {

@@ -52,6 +52,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings Location**: Moved from `~/.config/aitril/config.toml` to `~/.aitril/settings.json`
 
 ### Fixed
+- **Tri-lam Streaming**: Each provider now streams independently without waiting for others
+  - Removed blocking behavior when initial_planner is enabled
+  - Agents show real-time responses simultaneously
+- **Environment Priority**: `.env` models now override `settings.json` values
+  - Priority order: `.env` > `settings.json` > defaults
+  - Environment reloads on every WebSocket connection
+- **Ollama Support**: Added `OLLAMA_API_URL` environment variable support
+  - Checks both `OLLAMA_API_URL` and `OLLAMA_BASE_URL`
+  - Fixed model name requirements (must include tag, e.g., `granite4:350m`)
+- **Coordination Modes**: Fixed consensus, sequential, and debate mode execution
+  - Corrected method calls to `coordinate_consensus()`, `coordinate_sequential()`, `coordinate_debate()`
+  - Added progress event handlers in frontend
+- **Frontend Rendering**: Added support for status and assistant message types
+  - Consensus results now display in UI
+  - Progress messages show during multi-agent coordination
+- **Logging**: Added detailed logging for debugging
+  - WebSocket event transmission logging
+  - API key and model configuration verification
+  - Coordination execution flow tracking
 - Provider initialization when using .env files
 - Deployment selection not working in web UI
 - 404 errors for favicon requests
