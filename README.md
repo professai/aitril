@@ -1,6 +1,6 @@
 # 🧬 AiTril
 
-**Pronounced: "8-real"** | **Latest: v0.0.36**
+**Pronounced: "8-real"** | **Latest: v0.0.37**
 
 **Multi-LLM Orchestration CLI Tool with Automated Deployment**
 
@@ -8,7 +8,27 @@ AiTril is a neutral, open-source command-line interface that orchestrates multip
 
 ![AiTril Demo](https://raw.githubusercontent.com/professai/aitril/main/demo.gif)
 
-## 🎉 What's New in v0.0.36
+## 🎉 What's New in v0.0.37
+
+**One-Command Installation**
+- Curl-based installer for Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/professai/aitril/main/install.sh | bash`
+- PowerShell installer for Windows: `iwr -useb https://raw.githubusercontent.com/professai/aitril/main/install.ps1 | iex`
+- Interactive installation with Python version detection
+- Optional web interface installation
+- Automatic .env template download
+
+**Gemini Provider Fixes**
+- Fixed `'NoneType' object is not iterable` error in function calling
+- Added None checks for `func_call.args`, `response.parts`, and `chunk.parts`
+- Improved error handling in both `ask()` and `ask_stream()` methods
+
+**Tech Stack Configuration**
+- Tech stack preferences now saved to `.env` file with `AITRIL_TECH_` prefix
+- Added `--frontend` argument to `aitril config set-stack` command
+- Default values: Python, FastAPI, vanilla JavaScript and HTML
+- Read from `.env` with proper fallback to defaults
+
+## What's New in v0.0.36
 
 **Artifact-Based Coordination**
 - Full content transfer between agents (no truncation)
@@ -123,6 +143,25 @@ All specialized providers work seamlessly in tri-lam mode, consensus coordinatio
 
 ## Installation
 
+### Quick Install (Recommended)
+
+**Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/professai/aitril/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/professai/aitril/main/install.ps1 | iex
+```
+
+The installer will:
+- Check for Python 3.8+ installation
+- Install AiTril via pip
+- Optionally install the web interface
+- Download the .env.example template
+- Verify the installation
+
 ### Using pip
 
 ```bash
@@ -149,12 +188,12 @@ Run AiTril in a Docker container without installing Python 3.14 locally:
 
 ```bash
 # Quick start - show help
-docker run -it collinparan/aitril:0.0.36
+docker run -it collinparan/aitril:0.0.37
 
 # Query a single provider (requires API keys via env vars)
 docker run -it \
   -e OPENAI_API_KEY="sk-..." \
-  collinparan/aitril:0.0.36 \
+  collinparan/aitril:0.0.37 \
   aitril ask -p gpt "your prompt"
 
 # Tri-lam mode with all providers
@@ -162,15 +201,15 @@ docker run -it \
   -e OPENAI_API_KEY="sk-..." \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e GEMINI_API_KEY="..." \
-  collinparan/aitril:0.0.36 \
+  collinparan/aitril:0.0.37 \
   aitril tri "your prompt"
 
-# Web Interface (v0.0.36 with deployment features)
+# Web Interface (v0.0.37 with Gemini fixes)
 docker run -d \
   -p 37142:37142 \
   --env-file .env \
   -v ~/aitril_outputs:/root/Documents/projects/aitril_outputs \
-  collinparan/aitril:0.0.36 \
+  collinparan/aitril:0.0.37 \
   aitril web --host 0.0.0.0 --port 37142
 
 # Access at http://localhost:37142
