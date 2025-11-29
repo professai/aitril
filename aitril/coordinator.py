@@ -3,6 +3,17 @@ Multi-agent coordination for AiTril.
 
 Enables LLM providers to coordinate, share context, and build on each other's
 responses for more comprehensive and collaborative outputs.
+
+Tool Use Support (v0.0.32+):
+All coordination modes automatically support tool use via provider.ask():
+- Sequential: Each agent can use tools, building on previous tool results
+- Consensus: All agents can use tools independently, then synthesize
+- Debate: Agents can use tools in each debate round
+- Code Build: Tools available in planning, implementation, and review phases
+- Code Review: Tools can assist in code analysis
+
+Agents can execute shell commands, check system info, read/write files,
+and make HTTP requests to provide more accurate and actionable responses.
 """
 
 import asyncio
