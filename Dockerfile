@@ -1,63 +1,43 @@
 # AiTril Production Dockerfile
-# Using Ubuntu 24.04 LTS with Python 3.14.0
-# Installs AiTril v0.0.32 from PyPI with web interface and tool use
+# Using official Python 3.14 image
+# Installs AiTril v0.0.34 from PyPI with web interface and specialized providers
 
-FROM ubuntu:24.04
-
-# Prevent interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
+FROM python:3.14-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies and Python 3.14
+# Install system dependencies (minimal for production)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    build-essential \
-    curl \
     git \
+    curl \
     ca-certificates \
-    libffi-dev \
-    libssl-dev \
-    && add-apt-repository ppa:deadsnakes/ppa -y \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    python3.14 \
-    python3.14-dev \
-    python3.14-venv \
-    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Python 3.14 as default python3
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.14 1
-
-# Upgrade pip to latest version (ignore system packages to avoid conflicts)
-RUN python3 -m pip install --upgrade pip setuptools wheel --break-system-packages --ignore-installed
-
-# Install cffi explicitly to avoid conflicts with system packages
-RUN pip install cffi --break-system-packages
+# Upgrade pip to latest version
+RUN pip install --upgrade pip setuptools wheel
 
 # Install AiTril from PyPI with web extras
-RUN pip install 'aitril[web]==0.0.32' --break-system-packages
-
-# Copy static files for web interface
-COPY static /app/static
+RUN pip install 'aitril[web]==0.0.34'
 
 # Expose web server port
 EXPOSE 37142
 
-# Reset environment
-ENV DEBIAN_FRONTEND=
+# Environment variables for specialized providers
+ENV USE_SPECIALIZED_PROVIDERS=true
 
 # Default command: start web server
 CMD ["aitril", "web", "--host", "0.0.0.0", "--port", "37142"]
 
 # Usage examples:
 # Web interface:
-# docker run -p 37142:37142 --env-file .env collinparan/aitril:latest
+# docker run -p 37142:37142 --env-file .env professai/aitril:0.0.33
 # Then open http://localhost:37142
 #
 # CLI usage:
-# docker run -it --env-file .env collinparan/aitril:latest aitril --help
-# docker run -it --env-file .env collinparan/aitril:latest aitril tri "your prompt"
+# docker run -it --env-file .env professai/aitril:0.0.33 aitril --help
+# docker run -it --env-file .env professai/aitril:0.0.33 aitril tri "your prompt"
+#
+# With specialized providers (requires API keys in .env):
+# OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY
+# Optionally: OPENAI_CODEX_MODEL, CLAUDE_CODE_CLI_PATH, GEMINI_ADK_MODEL
