@@ -77,17 +77,17 @@ class AiTrilApp {
             if (Object.keys(this.agents).length === 0) {
                 this.agents = {
                     openai: { name: 'GPT (OpenAI)', model: 'gpt-5.1', status: 'idle', response: '' },
-                    anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4.5', status: 'idle', response: '' },
-                    gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro', status: 'idle', response: '' }
+                    anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4-5-20251101', status: 'idle', response: '' },
+                    gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro-preview', status: 'idle', response: '' }
                 };
             }
         } catch (error) {
             console.error('Failed to load providers:', error);
-            // Fall back to defaults
+            // Fall back to defaults (backend will upgrade to specialized providers)
             this.agents = {
                 openai: { name: 'GPT (OpenAI)', model: 'gpt-5.1', status: 'idle', response: '' },
-                anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4.5', status: 'idle', response: '' },
-                gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro', status: 'idle', response: '' }
+                anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4-5-20251101', status: 'idle', response: '' },
+                gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro-preview', status: 'idle', response: '' }
             };
         }
     }

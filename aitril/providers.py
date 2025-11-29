@@ -163,7 +163,7 @@ class OpenAIProvider(Provider):
                 model=self.model,
                 messages=messages,
                 tools=tools,
-                max_tokens=2000
+                max_completion_tokens=2000
             )
 
             message = response.choices[0].message
@@ -230,11 +230,13 @@ class OpenAIProvider(Provider):
             current_tool_call = {"id": "", "function": {"name": "", "arguments": ""}}
             content_parts = []
 
+            # Use max_completion_tokens for newer models (gpt-4-turbo, gpt-4o, etc.)
+            # Use max_tokens for older models (fallback)
             stream = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 tools=tools,
-                max_tokens=2000,
+                max_completion_tokens=2000,
                 stream=True
             )
 
@@ -578,11 +580,12 @@ class GeminiProvider(Provider):
                 model = genai.GenerativeModel(self.model)
 
             chat = model.start_chat()
+            current_prompt = prompt
 
             # Function calling loop
             max_iterations = 5
             for _ in range(max_iterations):
-                response = chat.send_message(prompt)
+                response = chat.send_message(current_prompt)
 
                 # Check if there are function calls
                 function_calls = []
@@ -619,7 +622,7 @@ class GeminiProvider(Provider):
                     )
 
                 # Send function responses back (this becomes the new prompt for next iteration)
-                prompt = genai.protos.Content(parts=function_responses)
+                current_prompt = genai.protos.Content(parts=function_responses)
 
             # Return last text if max iterations reached
             return "".join(text_parts)
@@ -641,7 +644,7 @@ class GeminiProvider(Provider):
         genai.configure(api_key=self.api_key)
         loop = asyncio.get_running_loop()
 
-        def _sync_stream_with_tools():
+        def _sync_stream_with_tools(initial_prompt):
             # Create model with tools if enabled
             if self.enable_tools:
                 tools = self._convert_tools_to_gemini_format()
@@ -650,7 +653,7 @@ class GeminiProvider(Provider):
                 model = genai.GenerativeModel(self.model)
 
             chat = model.start_chat()
-            current_prompt = prompt
+            current_prompt = initial_prompt
 
             # Function calling loop with streaming
             max_iterations = 5
@@ -709,7 +712,7 @@ class GeminiProvider(Provider):
                     break
 
         # Run the streaming generator in executor
-        for item in await loop.run_in_executor(None, lambda: list(_sync_stream_with_tools())):
+        for item in await loop.run_in_executor(None, lambda: list(_sync_stream_with_tools(prompt))):
             # item is a tuple of (type, content)
             if item[0] == "text":
                 yield item[1]
@@ -871,21 +874,293 @@ class LlamaCppProvider(Provider):
                                 yield data["content"]
 
 
+# ============================================================================
+# SPECIALIZED PROVIDERS (v0.0.33+)
+# ============================================================================
+# These providers use code/agent-specialized tools instead of general APIs
+
+
+class ClaudeCodeProvider(Provider):
+    """
+    Claude Code CLI Provider - shells out to actual claude binary.
+
+    Executes: claude -p "prompt" --model claude-opus-4-5-20251101
+
+    This uses the ACTUAL Claude Code CLI tool instead of general Anthropic API,
+    providing proper code/agent context and capabilities.
+    """
+
+    def _get_env_var_name(self) -> str:
+        return "ANTHROPIC_API_KEY"
+
+    def _get_model_env_var_name(self) -> str:
+        return "CLAUDE_CODE_MODEL"
+
+    def _default_model(self) -> str:
+        return "claude-opus-4-5-20251101"
+
+    def _get_claude_cli_path(self) -> str:
+        """Get path to claude CLI binary."""
+        # Try environment variable first
+        cli_path = os.environ.get("CLAUDE_CODE_CLI_PATH")
+        if cli_path:
+            return cli_path
+
+        # Try to find in PATH
+        import shutil
+        claude_path = shutil.which("claude")
+        if claude_path:
+            return claude_path
+
+        # Default fallback
+        return "/usr/local/bin/claude"
+
+    async def ask(self, prompt: str) -> str:
+        """
+        Execute claude CLI and return response.
+
+        Args:
+            prompt: User prompt
+
+        Returns:
+            Claude Code response
+        """
+        claude_cli = self._get_claude_cli_path()
+
+        # Build command
+        cmd = [
+            claude_cli,
+            "-p", prompt,
+            "--model", self.model
+        ]
+
+        try:
+            # Execute claude CLI
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "ANTHROPIC_API_KEY": self.api_key}
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode('utf-8')
+                raise RuntimeError(f"Claude Code CLI error: {error_msg}")
+
+            return stdout.decode('utf-8').strip()
+
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Claude Code CLI not found at {claude_cli}. "
+                "Install Claude Code or set CLAUDE_CODE_CLI_PATH environment variable."
+            )
+
+    async def ask_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """
+        Execute claude CLI with streaming output.
+
+        Args:
+            prompt: User prompt
+
+        Yields:
+            Text chunks from Claude Code
+        """
+        claude_cli = self._get_claude_cli_path()
+
+        # Build command (streaming mode)
+        cmd = [
+            claude_cli,
+            "-p", prompt,
+            "--model", self.model,
+            "--stream"  # Enable streaming if supported
+        ]
+
+        try:
+            # Execute claude CLI with streaming
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "ANTHROPIC_API_KEY": self.api_key}
+            )
+
+            # Stream output line by line
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                yield line.decode('utf-8')
+
+            await process.wait()
+
+            if process.returncode != 0:
+                stderr_output = await process.stderr.read()
+                error_msg = stderr_output.decode('utf-8')
+                raise RuntimeError(f"Claude Code CLI error: {error_msg}")
+
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Claude Code CLI not found at {claude_cli}. "
+                "Install Claude Code or set CLAUDE_CODE_CLI_PATH environment variable."
+            )
+
+
+class OpenAICodexProvider(OpenAIProvider):
+    """
+    OpenAI Codex Provider - uses code-specialized models.
+
+    Extends OpenAIProvider but uses Codex models optimized for code tasks
+    instead of general chat models.
+    """
+
+    def _get_model_env_var_name(self) -> str:
+        return "OPENAI_CODEX_MODEL"
+
+    def _default_model(self) -> str:
+        """Use code-specialized model instead of general chat."""
+        # Priority: OPENAI_CODEX_MODEL > OPENAI_MODEL > hardcoded fallback
+        # This ensures we never downgrade from .env model
+        specialized = os.environ.get("OPENAI_CODEX_MODEL")
+        if specialized:
+            return specialized
+
+        # Fall back to general OPENAI_MODEL from .env
+        general = os.environ.get("OPENAI_MODEL")
+        if general:
+            return general
+
+        # Only if both missing, use hardcoded fallback
+        return "gpt-4-turbo"
+
+    async def ask(self, prompt: str) -> str:
+        """
+        Query Codex with code-optimized prompting.
+
+        Args:
+            prompt: User prompt
+
+        Returns:
+            Codex response
+        """
+        # Enhance prompt for code context
+        code_prompt = f"[CODE/AGENT TASK] {prompt}"
+        return await super().ask(code_prompt)
+
+    async def ask_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """
+        Query Codex with streaming and code-optimized prompting.
+
+        Args:
+            prompt: User prompt
+
+        Yields:
+            Text chunks from Codex
+        """
+        # Enhance prompt for code context
+        code_prompt = f"[CODE/AGENT TASK] {prompt}"
+        async for chunk in super().ask_stream(code_prompt):
+            yield chunk
+
+
+class GeminiADKProvider(GeminiProvider):
+    """
+    Gemini ADK Provider - uses Agent Development Kit capabilities.
+
+    Extends GeminiProvider but optimized for agent/code tasks using ADK.
+    For now, uses API with agent-optimized prompting. Full ADK integration TBD.
+    """
+
+    def _get_model_env_var_name(self) -> str:
+        return "GEMINI_ADK_MODEL"
+
+    def _default_model(self) -> str:
+        """Use agent-optimized Gemini model."""
+        # Priority: GEMINI_ADK_MODEL > GEMINI_MODEL > hardcoded fallback
+        # This ensures we never downgrade from .env model
+        specialized = os.environ.get("GEMINI_ADK_MODEL")
+        if specialized:
+            return specialized
+
+        # Fall back to general GEMINI_MODEL from .env
+        general = os.environ.get("GEMINI_MODEL")
+        if general:
+            return general
+
+        # Only if both missing, use hardcoded fallback
+        return "gemini-2.0-flash-exp"
+
+    async def ask(self, prompt: str) -> str:
+        """
+        Query Gemini ADK with agent-optimized prompting.
+
+        Args:
+            prompt: User prompt
+
+        Returns:
+            Gemini ADK response
+        """
+        # Enhance prompt for agent/code context
+        agent_prompt = f"[AGENT/CODE TASK] {prompt}"
+        return await super().ask(agent_prompt)
+
+    async def ask_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """
+        Query Gemini ADK with streaming and agent-optimized prompting.
+
+        Args:
+            prompt: User prompt
+
+        Yields:
+            Text chunks from Gemini ADK
+        """
+        # Enhance prompt for agent/code context
+        agent_prompt = f"[AGENT/CODE TASK] {prompt}"
+        async for chunk in super().ask_stream(agent_prompt):
+            yield chunk
+
+
+# ============================================================================
+# PROVIDER FACTORY WITH SPECIALIZED/FALLBACK LOGIC
+# ============================================================================
+
+
 def create_provider(name: str, config: dict) -> Provider:
     """
-    Factory function to create a provider instance.
+    Factory function to create a provider instance with specialized/fallback logic.
+
+    v0.0.33+ supports specialized code/agent providers:
+    - 'claudecode': Claude Code CLI (specialized) → AnthropicProvider (fallback)
+    - 'openaicodex': OpenAI Codex (specialized) → OpenAIProvider (fallback)
+    - 'geminiadk': Gemini ADK (specialized) → GeminiProvider (fallback)
+
+    Environment variable USE_SPECIALIZED_PROVIDERS controls behavior:
+    - "true" (default): Use specialized providers
+    - "false": Use general API providers only
 
     Args:
-        name: Provider name ('openai', 'anthropic', 'gemini', 'ollama', 'llamacpp').
-        config: Provider configuration dictionary.
+        name: Provider name
+        config: Provider configuration dictionary
 
     Returns:
-        Provider instance.
+        Provider instance
 
     Raises:
-        ValueError: If provider name is unknown.
+        ValueError: If provider name is unknown
     """
-    providers = {
+    # Check if specialized providers are enabled
+    use_specialized = os.environ.get("USE_SPECIALIZED_PROVIDERS", "true").lower() == "true"
+
+    # Specialized providers (v0.0.33+)
+    specialized_providers = {
+        "claudecode": ClaudeCodeProvider,
+        "openaicodex": OpenAICodexProvider,
+        "geminiadk": GeminiADKProvider,
+    }
+
+    # General API providers (v0.0.32 compatibility)
+    general_providers = {
         "openai": OpenAIProvider,
         "anthropic": AnthropicProvider,
         "gemini": GeminiProvider,
@@ -893,8 +1168,61 @@ def create_provider(name: str, config: dict) -> Provider:
         "llamacpp": LlamaCppProvider,
     }
 
-    provider_class = providers.get(name.lower())
-    if not provider_class:
-        raise ValueError(f"Unknown provider: {name}. Available: {', '.join(providers.keys())}")
+    # Mapping: specialized → general (for fallback)
+    fallback_map = {
+        "claudecode": "anthropic",
+        "openaicodex": "openai",
+        "geminiadk": "gemini",
+    }
 
-    return provider_class(config)
+    # Mapping: general → specialized (when USE_SPECIALIZED_PROVIDERS=true)
+    upgrade_map = {
+        "anthropic": "claudecode",
+        "openai": "openaicodex",
+        "gemini": "geminiadk",
+    }
+
+    name_lower = name.lower()
+
+    # UPGRADE: If using general name but specialized providers are enabled,
+    # try to upgrade to specialized provider first
+    if use_specialized and name_lower in upgrade_map:
+        specialized_name = upgrade_map[name_lower]
+        try:
+            provider_class = specialized_providers[specialized_name]
+            instance = provider_class(config)
+            print(f"✓ Using specialized provider: {provider_class.__name__}")
+            return instance
+        except (RuntimeError, FileNotFoundError) as e:
+            # Fall through to general provider
+            print(f"⚠ Specialized provider unavailable ({e.__class__.__name__}), using general API")
+
+    # Try specialized provider first (if enabled)
+    if use_specialized and name_lower in specialized_providers:
+        try:
+            provider_class = specialized_providers[name_lower]
+            return provider_class(config)
+        except (RuntimeError, FileNotFoundError) as e:
+            # Fall back to general provider
+            print(f"Warning: Specialized provider '{name}' failed ({e}), falling back to general API")
+            fallback_name = fallback_map.get(name_lower)
+            if fallback_name:
+                provider_class = general_providers[fallback_name]
+                return provider_class(config)
+
+    # Try general provider
+    if name_lower in general_providers:
+        provider_class = general_providers[name_lower]
+        return provider_class(config)
+
+    # Also support specialized provider names when USE_SPECIALIZED_PROVIDERS=false
+    # In this case, map directly to general provider
+    if not use_specialized and name_lower in fallback_map:
+        fallback_name = fallback_map[name_lower]
+        provider_class = general_providers[fallback_name]
+        return provider_class(config)
+
+    # Unknown provider
+    all_providers = list(specialized_providers.keys()) + list(general_providers.keys())
+    raise ValueError(f"Unknown provider: {name}. Available: {', '.join(sorted(set(all_providers)))}")
+

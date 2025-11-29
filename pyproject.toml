@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aitril"
-version = "0.0.32"
-description = "AiTril - Multi-LLM orchestration CLI tool"
+version = "0.0.33"
+description = "AiTril - Multi-LLM orchestration CLI tool with specialized code/agent providers"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.14"
 license = {text = "Apache-2.0"}
