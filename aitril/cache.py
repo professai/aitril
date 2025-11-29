@@ -7,6 +7,7 @@ to enable continuity across interactions and coordination between agents.
 
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,118 @@ def get_cache_file(name: str = "cache.json") -> Path:
         Full path to cache file
     """
     return get_cache_dir() / name
+
+
+def find_env_file() -> Optional[Path]:
+    """
+    Find .env file in current directory or project root.
+
+    Returns:
+        Path to .env file if found, None otherwise
+    """
+    # Check current working directory first
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        return cwd_env
+
+    # Check for /app directory (Docker container)
+    app_env = Path("/app") / ".env"
+    if app_env.exists():
+        return app_env
+
+    # Check home directory
+    home_env = Path.home() / ".env"
+    if home_env.exists():
+        return home_env
+
+    return None
+
+
+def read_env_file() -> Dict[str, str]:
+    """
+    Read .env file and return key-value pairs.
+
+    Returns:
+        Dictionary of environment variables from .env file
+    """
+    env_path = find_env_file()
+    if not env_path:
+        return {}
+
+    env_vars = {}
+    try:
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Skip comments and empty lines
+                if not line or line.startswith('#'):
+                    continue
+                # Parse KEY=VALUE format
+                match = re.match(r'^([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$', line)
+                if match:
+                    key, value = match.groups()
+                    # Remove quotes if present
+                    value = value.strip('"').strip("'")
+                    env_vars[key] = value
+    except Exception as e:
+        print(f"Warning: Failed to read .env file: {e}")
+
+    return env_vars
+
+
+def write_env_variable(key: str, value: str) -> bool:
+    """
+    Write or update a variable in the .env file.
+
+    Args:
+        key: Environment variable name (will be uppercased)
+        value: Value to set
+
+    Returns:
+        True if successful, False otherwise
+    """
+    env_path = find_env_file()
+
+    # If no .env file exists, create one in current directory
+    if not env_path:
+        env_path = Path.cwd() / ".env"
+        try:
+            env_path.touch()
+        except Exception as e:
+            print(f"Warning: Failed to create .env file: {e}")
+            return False
+
+    key = key.upper()
+
+    try:
+        # Read existing content
+        lines = []
+        if env_path.exists():
+            with open(env_path, 'r') as f:
+                lines = f.readlines()
+
+        # Find and update the key, or append if not found
+        key_found = False
+        for i, line in enumerate(lines):
+            if re.match(rf'^{key}\s*=', line):
+                lines[i] = f'{key}={value}\n'
+                key_found = True
+                break
+
+        if not key_found:
+            # Add new variable
+            if lines and not lines[-1].endswith('\n'):
+                lines.append('\n')
+            lines.append(f'{key}={value}\n')
+
+        # Write back to file
+        with open(env_path, 'w') as f:
+            f.writelines(lines)
+
+        return True
+    except Exception as e:
+        print(f"Warning: Failed to write to .env file: {e}")
+        return False
 
 
 class SessionCache:
@@ -258,24 +371,36 @@ class SessionCache:
 
     def set_tech_stack(self, stack_config: Dict[str, Any], global_pref: bool = True) -> None:
         """
-        Set tech stack preferences.
+        Set tech stack preferences in .env file.
 
         Args:
             stack_config: Dictionary containing tech stack configuration:
                          {
                              "language": "python",
                              "framework": "fastapi",
+                             "frontend": "vanilla javascript and html",
                              "database": "postgresql",
-                             "tools": ["docker", "pytest"],
+                             "tools": "docker,pytest",
                              "style_guide": "pep8"
                          }
-            global_pref: If True, set as global preference; otherwise session-specific
+            global_pref: If True, set as global preference (writes to .env);
+                        otherwise session-specific (cache.json)
         """
         if global_pref:
+            # Write to .env file with AITRIL_TECH_ prefix
+            for key, value in stack_config.items():
+                env_key = f"AITRIL_TECH_{key.upper()}"
+                # Convert lists to comma-separated strings
+                if isinstance(value, list):
+                    value = ",".join(value)
+                write_env_variable(env_key, str(value))
+
+            # Also save to cache as backup
             if "tech_stack" not in self.data["preferences"]:
                 self.data["preferences"]["tech_stack"] = {}
             self.data["preferences"]["tech_stack"].update(stack_config)
         else:
+            # Session-specific preferences go to cache only
             session = self.get_session_data()
             if "tech_stack" not in session["preferences"]:
                 session["preferences"]["tech_stack"] = {}
@@ -285,20 +410,40 @@ class SessionCache:
 
     def get_tech_stack(self) -> Dict[str, Any]:
         """
-        Get tech stack preferences.
+        Get tech stack preferences from .env file with defaults.
 
         Returns:
-            Tech stack configuration dict
+            Tech stack configuration dict with defaults:
+            - language: python
+            - framework: fastapi
+            - frontend: vanilla javascript and html
         """
-        # Check session preferences first
+        # Define defaults
+        defaults = {
+            "language": "python",
+            "framework": "fastapi",
+            "frontend": "vanilla javascript and html"
+        }
+
+        # Read from .env file
+        env_vars = read_env_file()
+        env_stack = {}
+        for key, value in env_vars.items():
+            if key.startswith("AITRIL_TECH_"):
+                stack_key = key.replace("AITRIL_TECH_", "").lower()
+                env_stack[stack_key] = value
+
+        # Check session preferences (highest priority)
         session = self.get_session_data()
         session_stack = session["preferences"].get("tech_stack", {})
 
-        # Merge with global preferences (session overrides global)
+        # Check global cache preferences (lower priority than session)
         global_stack = self.data["preferences"].get("tech_stack", {})
 
-        # Merge dictionaries (session values override global)
-        merged = global_stack.copy()
+        # Merge: defaults < global cache < env file < session
+        merged = defaults.copy()
+        merged.update(global_stack)
+        merged.update(env_stack)
         merged.update(session_stack)
 
         return merged

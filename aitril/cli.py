@@ -104,6 +104,9 @@ def cmd_ask(args):
         display.task_error(error_msg=str(e))
         sys.exit(1)
     except Exception as e:
+        import traceback
+        print("DEBUG: Full traceback:")
+        traceback.print_exc()
         display.task_error(error_msg=str(e))
         sys.exit(1)
 
@@ -308,6 +311,8 @@ def cmd_config(args):
             stack_config["language"] = args.language
         if args.framework:
             stack_config["framework"] = args.framework
+        if args.frontend:
+            stack_config["frontend"] = args.frontend
         if args.database:
             stack_config["database"] = args.database
         if args.tools:
@@ -406,8 +411,8 @@ def cmd_build(args):
     display.divider()
 
     try:
-        # Phase 1: Planning
-        display.task_start("Planning: Building consensus on architecture")
+        # Multi-phase code build (Planning -> Implementation -> Review)
+        display.task_start("Code Build: Planning → Implementation → Review (30-60s)")
         results = asyncio.run(
             aitril.coordinator.coordinate_code_build(
                 args.task,
@@ -669,6 +674,11 @@ For more information, visit: https://github.com/professai/aitril
         "--framework",
         type=str,
         help="Framework (e.g., fastapi, react, django)"
+    )
+    parser_config.add_argument(
+        "--frontend",
+        type=str,
+        help="Frontend stack (e.g., 'vanilla javascript and html', react, vue)"
     )
     parser_config.add_argument(
         "--database",

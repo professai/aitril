@@ -534,6 +534,11 @@ class GeminiProvider(Provider):
         """Convert our tool definitions to Gemini's function declaration format."""
         tools = self.tool_registry.get_openai_tools()
 
+        # Safety check: handle None case
+        if tools is None:
+            print("DEBUG: tools is None!")
+            return []
+
         gemini_tools = []
         for tool in tools:
             func_def = tool["function"]
@@ -568,64 +573,73 @@ class GeminiProvider(Provider):
         Returns:
             Gemini's response as a string.
         """
+        print(f"DEBUG: GeminiProvider.ask() called with prompt: {prompt[:50]}...")
         genai.configure(api_key=self.api_key)
         loop = asyncio.get_running_loop()
 
         def _sync_call():
-            # Create model with tools if enabled
-            if self.enable_tools:
-                tools = self._convert_tools_to_gemini_format()
-                model = genai.GenerativeModel(self.model, tools=tools)
-            else:
-                model = genai.GenerativeModel(self.model)
+            import traceback
+            try:
+                # Create model with tools if enabled
+                if self.enable_tools:
+                    tools = self._convert_tools_to_gemini_format()
+                    model = genai.GenerativeModel(self.model, tools=tools)
+                else:
+                    model = genai.GenerativeModel(self.model)
 
-            chat = model.start_chat()
-            current_prompt = prompt
+                chat = model.start_chat()
+                current_prompt = prompt
 
-            # Function calling loop
-            max_iterations = 5
-            for _ in range(max_iterations):
-                response = chat.send_message(current_prompt)
+                # Function calling loop
+                max_iterations = 5
+                for _ in range(max_iterations):
+                    response = chat.send_message(current_prompt)
 
-                # Check if there are function calls
-                function_calls = []
-                text_parts = []
+                    # Check if there are function calls
+                    function_calls = []
+                    text_parts = []
 
-                for part in response.parts:
-                    if hasattr(part, 'text') and part.text:
-                        text_parts.append(part.text)
-                    elif hasattr(part, 'function_call'):
-                        function_calls.append(part.function_call)
+                    # Check if response.parts exists before iterating
+                    if response.parts:
+                        for part in response.parts:
+                            if hasattr(part, 'text') and part.text:
+                                text_parts.append(part.text)
+                            elif hasattr(part, 'function_call'):
+                                function_calls.append(part.function_call)
 
-                # If no function calls, return the text
-                if not function_calls:
-                    return "".join(text_parts)
+                    # If no function calls, return the text
+                    if not function_calls:
+                        return "".join(text_parts)
 
-                # Execute function calls
-                function_responses = []
-                for func_call in function_calls:
-                    # Convert function call args to dict
-                    args = dict(func_call.args)
+                    # Execute function calls
+                    function_responses = []
+                    for func_call in function_calls:
+                        # Convert function call args to dict
+                        args = dict(func_call.args) if func_call.args else {}
 
-                    # Execute the tool (sync version since we're in executor)
-                    result = asyncio.run(
-                        self.tool_registry.execute_tool(func_call.name, **args)
-                    )
+                        # Execute the tool (sync version since we're in executor)
+                        result = asyncio.run(
+                            self.tool_registry.execute_tool(func_call.name, **args)
+                        )
 
-                    function_responses.append(
-                        genai.protos.Part(
-                            function_response=genai.protos.FunctionResponse(
-                                name=func_call.name,
-                                response={"result": result}
+                        function_responses.append(
+                            genai.protos.Part(
+                                function_response=genai.protos.FunctionResponse(
+                                    name=func_call.name,
+                                    response={"result": result}
+                                )
                             )
                         )
-                    )
 
-                # Send function responses back (this becomes the new prompt for next iteration)
-                current_prompt = genai.protos.Content(parts=function_responses)
+                    # Send function responses back (this becomes the new prompt for next iteration)
+                    current_prompt = genai.protos.Content(parts=function_responses)
 
-            # Return last text if max iterations reached
-            return "".join(text_parts)
+                # Return last text if max iterations reached
+                return "".join(text_parts)
+            except Exception as e:
+                print(f"DEBUG: Error in _sync_call: {e}")
+                traceback.print_exc()
+                raise
 
         result = await loop.run_in_executor(None, _sync_call)
         return result or ""
@@ -665,12 +679,14 @@ class GeminiProvider(Provider):
 
                 # Stream the response
                 for chunk in response:
-                    for part in chunk.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                            yield ("text", part.text)
-                        elif hasattr(part, 'function_call'):
-                            function_calls.append(part.function_call)
+                    # Check if chunk.parts exists before iterating
+                    if chunk.parts:
+                        for part in chunk.parts:
+                            if hasattr(part, 'text') and part.text:
+                                text_parts.append(part.text)
+                                yield ("text", part.text)
+                            elif hasattr(part, 'function_call'):
+                                function_calls.append(part.function_call)
 
                 # If no function calls, we're done
                 if not function_calls:
@@ -680,7 +696,7 @@ class GeminiProvider(Provider):
                 function_responses = []
                 for func_call in function_calls:
                     # Convert function call args to dict
-                    args = dict(func_call.args)
+                    args = dict(func_call.args) if func_call.args else {}
 
                     # Yield tool execution info
                     yield ("tool_start", f"\n\n🔧 **Executing tool:** `{func_call.name}`\n")
