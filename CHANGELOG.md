@@ -5,6 +5,77 @@ All notable changes to AiTril will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.32] - 2025-11-28
+
+### Added
+- **🔧 Tool Use System**: Comprehensive function calling / tool use across all providers
+  - **Tool Framework** (`aitril/tools.py`): Base Tool class with execute() interface
+  - **ShellTool**: Execute whitelisted shell commands (curl, date, ls, cat, echo, etc.)
+  - **SystemInfoTool**: Get system time, timezone, OS information - solves "what time is it?" issues
+  - **FileTool**: Read, write, and list file operations
+  - **WebTool**: HTTP GET and POST requests to APIs
+  - **ToolRegistry**: Manages all tools with provider-specific format conversion
+
+- **Provider Function Calling**: All 3 major providers have full tool support
+  - **OpenAI (GPT-4o)**: Chat Completions API with function calling
+    - Tool execution loop (max 5 iterations)
+    - Streaming accumulates tool calls, yields execution results
+    - Switched default model from gpt-5.1 to gpt-4o for better function support
+  - **Anthropic (Claude Opus 4.5)**: Messages API with tool use
+    - Event-driven streaming with tool execution
+    - Multi-tool scenario support
+    - Updated default to claude-opus-4-5-20251124
+  - **Gemini (2.0 Flash)**: GenerativeModel with function declarations
+    - FunctionDeclaration format conversion
+    - Chat-based function calling with start_chat()
+    - Changed default from gemini-3-pro-preview to gemini-2.0-flash-exp
+
+- **Universal Tool Integration**: Tools work across ALL modes
+  - **Tri-lam Mode**: Each provider uses tools independently in parallel
+  - **Consensus Mode**: All agents use tools, then synthesize results
+  - **Sequential Mode**: Agents use tools, building on previous tool results
+  - **Debate Mode**: Tools available in each debate round
+  - **Code Build Mode**: Tools in planning, implementation, and review phases
+  - **Code Review Mode**: Tools assist in code analysis
+
+### Changed
+- **Default Models Updated** for better tool support:
+  - OpenAI: gpt-5.1 → gpt-4o
+  - Gemini: gemini-3-pro-preview → gemini-2.0-flash-exp
+  - Anthropic: claude-opus-4-5-20250929 → claude-opus-4-5-20251124
+
+- **Provider Base Class**: Added tool_registry and enable_tools properties
+  - All providers have access to global ToolRegistry instance
+  - Tools can be disabled per-provider with enable_tools: false config
+
+### Technical Details
+- **Tool Execution Flow**:
+  1. LLM decides to use a tool (function call)
+  2. Tool executes asynchronously (shell, HTTP, file ops, etc.)
+  3. Result sent back to LLM
+  4. LLM continues reasoning with tool results
+  5. All output streamed in real-time to user
+
+- **Safety Features**:
+  - ShellTool: Whitelisted commands only (curl, date, ls, cat, echo, which, uname, pwd, whoami, uptime, cal)
+  - Command timeout: 10 seconds max execution time
+  - File size limits: 5000 chars for reads, truncated displays
+  - HTTP timeout: 10 seconds per request
+  - Max tool iterations: 5 per conversation to prevent loops
+
+- **Architecture**:
+  - 417 lines in `aitril/tools.py` - Complete tool framework
+  - 892 total lines added across providers.py and tools.py
+  - All providers use async tool execution
+  - Streaming yields formatted tool execution info
+
+### Use Cases Enabled
+- **Accurate Time/Timezone Queries**: "What time is it in Colorado?" → Uses SystemInfoTool
+- **Web API Integration**: "Check the weather API" → Uses WebTool with HTTP requests
+- **File Operations**: "Read config.json" → Uses FileTool
+- **System Commands**: "Curl this endpoint" → Uses ShellTool
+- **Multi-tool Chains**: Agents can use multiple tools in sequence
+
 ## [0.0.31] - 2025-11-28
 
 ### Added
