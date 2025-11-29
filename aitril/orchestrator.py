@@ -30,12 +30,19 @@ class AiTril:
         self.cache = SessionCache(session_name) if use_cache else None
         self.coordinator = None
 
-        # Initialize all enabled providers
+        # Initialize all enabled providers (up to 8: openai, anthropic, gemini, ollama, llamacpp, custom1-3)
         if "providers" in config:
             for name, provider_config in config["providers"].items():
                 if isinstance(provider_config, dict) and provider_config.get("enabled", False):
                     try:
-                        self.providers[name] = create_provider(name, provider_config)
+                        # For custom providers, use provider_type to determine implementation
+                        provider_type = provider_config.get("provider_type", name)
+
+                        # Ensure base_url is passed through to provider
+                        # This is critical for local models and Docker networking
+                        provider_init_config = provider_config.copy()
+
+                        self.providers[name] = create_provider(provider_type, provider_init_config)
                     except Exception as e:
                         print(f"Warning: Failed to initialize {name} provider: {e}")
 
@@ -265,5 +272,10 @@ Build upon and enhance the initial plan with your unique perspective."""
             "openai": "GPT (OpenAI)",
             "anthropic": "Claude (Anthropic)",
             "gemini": "Gemini (Google)",
+            "ollama": "Ollama (Local)",
+            "llamacpp": "Llama.cpp (Local)",
+            "custom1": "Custom Model 1",
+            "custom2": "Custom Model 2",
+            "custom3": "Custom Model 3",
         }
         return display_names.get(provider_name, provider_name.title())

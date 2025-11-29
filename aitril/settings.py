@@ -70,6 +70,49 @@ class Settings:
                     "model": os.getenv("GEMINI_MODEL", "gemini-1.5-pro"),
                     "base_url": None,
                     "custom": False
+                },
+                "ollama": {
+                    "name": "Ollama (Local)",
+                    "enabled": False,
+                    "api_key_env": None,
+                    "model": os.getenv("OLLAMA_MODEL", "llama2"),
+                    "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                    "custom": False
+                },
+                "llamacpp": {
+                    "name": "Llama.cpp (Local)",
+                    "enabled": False,
+                    "api_key_env": None,
+                    "model": os.getenv("LLAMACPP_MODEL", "default"),
+                    "base_url": os.getenv("LLAMACPP_BASE_URL", "http://localhost:8080"),
+                    "custom": False
+                },
+                "custom1": {
+                    "name": "Custom Model 1",
+                    "enabled": False,
+                    "api_key_env": "CUSTOM1_API_KEY",
+                    "model": os.getenv("CUSTOM1_MODEL", ""),
+                    "base_url": os.getenv("CUSTOM1_BASE_URL"),
+                    "custom": True,
+                    "provider_type": "ollama"  # or "llamacpp", "openai"
+                },
+                "custom2": {
+                    "name": "Custom Model 2",
+                    "enabled": False,
+                    "api_key_env": "CUSTOM2_API_KEY",
+                    "model": os.getenv("CUSTOM2_MODEL", ""),
+                    "base_url": os.getenv("CUSTOM2_BASE_URL"),
+                    "custom": True,
+                    "provider_type": "ollama"
+                },
+                "custom3": {
+                    "name": "Custom Model 3",
+                    "enabled": False,
+                    "api_key_env": "CUSTOM3_API_KEY",
+                    "model": os.getenv("CUSTOM3_MODEL", ""),
+                    "base_url": os.getenv("CUSTOM3_BASE_URL"),
+                    "custom": True,
+                    "provider_type": "ollama"
                 }
             },
             "deployment_targets": {

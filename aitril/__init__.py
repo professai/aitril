@@ -5,6 +5,6 @@ A neutral, open-source CLI for orchestrating multiple LLM providers
 through a single unified interface.
 """
 
-__version__ = "0.0.29"
+__version__ = "0.0.30"
 __author__ = "AiTril Contributors"
 __description__ = "Multi-LLM orchestration CLI tool"

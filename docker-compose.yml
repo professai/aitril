@@ -1,4 +1,7 @@
+version: '3.8'
+
 services:
+  # AiTril CLI container (development)
   aitril:
     build:
       context: .
@@ -8,14 +11,95 @@ services:
     env_file:
       - .env  # Load API keys from .env file
     environment:
-      # Override API keys from host environment (optional)
+      # Cloud provider API keys
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Local model configuration (using service names for Docker networking)
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2}
+      - LLAMACPP_BASE_URL=http://llamacpp:8080
+      - LLAMACPP_MODEL=default
     volumes:
       # Mount source code for development
       - .:/app
+      # Persist settings across restarts
+      - aitril-settings:/root/.aitril
     command: bash
     stdin_open: true
     tty: true
     working_dir: /app
+    networks:
+      - aitril-network
+    depends_on:
+      - ollama
+      - llamacpp
+
+  # AiTril Web Interface
+  aitril-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aitril:latest
+    container_name: aitril-web
+    env_file:
+      - .env
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2}
+      - LLAMACPP_BASE_URL=http://llamacpp:8080
+      - LLAMACPP_MODEL=default
+    volumes:
+      - .:/app
+      - aitril-settings:/root/.aitril
+    ports:
+      - "8888:8888"
+    command: aitril web --host 0.0.0.0 --port 8888
+    networks:
+      - aitril-network
+    depends_on:
+      - ollama
+      - llamacpp
+
+  # Ollama - Local LLM server
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aitril-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - aitril-network
+    # Optionally pull a model on startup
+    # command: ["serve"]
+    restart: unless-stopped
+
+  # Llama.cpp server - Alternative local LLM
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: aitril-llamacpp
+    ports:
+      - "8080:8080"
+    volumes:
+      - llamacpp-models:/models
+    networks:
+      - aitril-network
+    # Mount your model file and start server
+    # command: ["-m", "/models/your-model.gguf", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+
+networks:
+  aitril-network:
+    driver: bridge
+
+volumes:
+  # Persist Ollama models and cache
+  ollama-data:
+  # Persist Llama.cpp models
+  llamacpp-models:
+  # Persist AiTril settings across containers
+  aitril-settings:

@@ -1,0 +1,116 @@
+# Docker Compose configuration for AiTril with LOCAL MODELS ONLY
+# No cloud API keys required - runs completely offline with Ollama and Llama.cpp
+# 
+# Usage:
+#   1. Start services: docker-compose -f docker-compose.local.yml up -d
+#   2. Pull Ollama model: docker exec aitril-ollama ollama pull llama2
+#   3. Download and mount Llama.cpp model to ./models/ directory
+#   4. Access web UI: http://localhost:8888
+#   5. Or use CLI: docker-compose -f docker-compose.local.yml exec aitril aitril tri "your prompt"
+
+version: '3.8'
+
+services:
+  # AiTril CLI container (local models only)
+  aitril:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aitril:latest
+    container_name: aitril-local
+    environment:
+      # Local model configuration only
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama2
+      - LLAMACPP_BASE_URL=http://llamacpp:8080
+      - LLAMACPP_MODEL=default
+    volumes:
+      - .:/app
+      - aitril-settings:/root/.aitril
+    command: bash
+    stdin_open: true
+    tty: true
+    working_dir: /app
+    networks:
+      - aitril-local-network
+    depends_on:
+      - ollama
+      - llamacpp
+
+  # AiTril Web Interface (local models only)
+  aitril-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aitril:latest
+    container_name: aitril-web-local
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama2
+      - LLAMACPP_BASE_URL=http://llamacpp:8080
+      - LLAMACPP_MODEL=default
+    volumes:
+      - .:/app
+      - aitril-settings:/root/.aitril
+    ports:
+      - "8888:8888"
+    command: aitril web --host 0.0.0.0 --port 8888
+    networks:
+      - aitril-local-network
+    depends_on:
+      - ollama
+      - llamacpp
+
+  # Ollama - Local LLM server
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aitril-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - aitril-local-network
+    restart: unless-stopped
+    # Uncomment to enable GPU support (requires nvidia-docker)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Llama.cpp server
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: aitril-llamacpp
+    ports:
+      - "8080:8080"
+    volumes:
+      - llamacpp-models:/models
+      # Mount local models directory (create ./models/ and download .gguf files)
+      - ./models:/models:ro
+    networks:
+      - aitril-local-network
+    # Update this command with your actual model file
+    # Download models from: https://huggingface.co/models?search=gguf
+    command: ["-m", "/models/your-model.gguf", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+    # Uncomment to enable GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+networks:
+  aitril-local-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+  llamacpp-models:
+  aitril-settings:

@@ -4,11 +4,7 @@ class AiTrilApp {
     constructor() {
         this.ws = null;
         this.currentMode = 'build';
-        this.agents = {
-            openai: { name: 'GPT-5.1', status: 'idle', response: '' },
-            anthropic: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
-            gemini: { name: 'Gemini 3 Pro', status: 'idle', response: '' }
-        };
+        this.agents = {}; // Will be populated from settings API
         this.currentPhase = null;
         this.messages = [];
         this.modeInfo = {
@@ -29,10 +25,48 @@ class AiTrilApp {
         this.init();
     }
 
-    init() {
+    async init() {
+        await this.loadProviders();
         this.render();
         this.connectWebSocket();
         this.setupEventListeners();
+    }
+
+    async loadProviders() {
+        try {
+            const response = await fetch('/api/settings/providers');
+            const providers = await response.json();
+
+            // Initialize agents from settings (up to 8 providers)
+            this.agents = {};
+            Object.entries(providers).forEach(([id, config]) => {
+                if (config.enabled) {
+                    this.agents[id] = {
+                        name: config.name || id,
+                        model: config.model || 'default',
+                        status: 'idle',
+                        response: ''
+                    };
+                }
+            });
+
+            // If no providers are enabled, set up defaults for demo
+            if (Object.keys(this.agents).length === 0) {
+                this.agents = {
+                    openai: { name: 'GPT (OpenAI)', model: 'gpt-5.1', status: 'idle', response: '' },
+                    anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4.5', status: 'idle', response: '' },
+                    gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro', status: 'idle', response: '' }
+                };
+            }
+        } catch (error) {
+            console.error('Failed to load providers:', error);
+            // Fall back to defaults
+            this.agents = {
+                openai: { name: 'GPT (OpenAI)', model: 'gpt-5.1', status: 'idle', response: '' },
+                anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4.5', status: 'idle', response: '' },
+                gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro', status: 'idle', response: '' }
+            };
+        }
     }
 
     connectWebSocket() {
@@ -352,6 +386,29 @@ class AiTrilApp {
         }
     }
 
+    getAgentIcon(agentId) {
+        // Return appropriate icon for each agent type
+        const icons = {
+            openai: 'G',
+            anthropic: 'C',
+            gemini: 'Gm',
+            ollama: 'O',
+            llamacpp: 'L',
+            custom1: 'C1',
+            custom2: 'C2',
+            custom3: 'C3'
+        };
+        return icons[agentId] || agentId[0].toUpperCase();
+    }
+
+    getAgentBadge(agent) {
+        // Add badge for local models
+        if (agent.model && (agent.model.includes('ollama') || agent.model.includes('llama'))) {
+            return '<span class="local-badge">LOCAL</span>';
+        }
+        return '';
+    }
+
     renderAgents() {
         const container = document.querySelector('.agents-container');
         if (!container) return;
@@ -360,8 +417,12 @@ class AiTrilApp {
             <div class="agent-card ${key} ${agent.status === 'active' ? 'active' : ''}">
                 <div class="agent-header">
                     <div class="agent-name">
-                        <div class="agent-icon ${key}">${key[0].toUpperCase()}</div>
-                        <span>${agent.name}</span>
+                        <div class="agent-icon ${key}">${this.getAgentIcon(key)}</div>
+                        <div class="agent-info">
+                            <span class="agent-title">${agent.name}</span>
+                            ${agent.model ? `<span class="agent-model">${agent.model}</span>` : ''}
+                        </div>
+                        ${this.getAgentBadge(agent)}
                     </div>
                     <div class="agent-status">
                         <div class="status-dot ${agent.status === 'active' ? 'active' : ''}"></div>
