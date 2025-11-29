@@ -5,6 +5,80 @@ All notable changes to AiTril will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.37] - 2025-11-29
+
+### Added
+- **One-Command Installation**: Quick install scripts for all platforms
+  - `install.sh`: Bash installer for Linux/macOS with curl
+  - `install.ps1`: PowerShell installer for Windows
+  - Auto-detects Python version (3.8+ required)
+  - Optional web interface installation
+  - Downloads .env.example template automatically
+  - Verifies PATH configuration and provides setup guidance
+  - Usage: `curl -fsSL https://raw.githubusercontent.com/professai/aitril/main/install.sh | bash`
+  - Usage (Windows): `iwr -useb https://raw.githubusercontent.com/professai/aitril/main/install.ps1 | iex`
+
+- **Tech Stack Configuration in .env**:
+  - Tech stack preferences now saved to `.env` file with `AITRIL_TECH_` prefix
+  - Added `--frontend` argument to `aitril config set-stack` command
+  - Default values: Python, FastAPI, vanilla JavaScript and HTML
+  - Read from `.env` with proper fallback to defaults
+  - Environment variables: `AITRIL_TECH_LANGUAGE`, `AITRIL_TECH_FRAMEWORK`, `AITRIL_TECH_FRONTEND`
+
+### Fixed
+- **Gemini Provider NoneType Error**: Fixed `'NoneType' object is not iterable` error in function calling
+  - Added None check for `func_call.args` in both `ask()` and `ask_stream()` methods (lines 618, 699)
+  - Added None check for `response.parts` before iteration
+  - Added None check for `chunk.parts` before iteration
+  - Improved error handling in Gemini's function calling implementation
+
+### Changed
+- Updated all Docker version references from 0.0.36 to 0.0.37
+- Updated README with "Quick Install (Recommended)" section
+- Updated landing page with one-command installers
+- Dockerfile updated to install v0.0.37 from PyPI
+
+### Documentation
+- Added installation scripts documentation to README
+- Updated "What's New" section in README
+- Updated meta tags and version references in landing page
+
+## [0.0.36] - 2025-11-29
+
+### Added
+- **Artifact-Based Coordination**: Full content transfer between agents
+  - `AgentArtifact` system for plans, code, files, and data
+  - `ArtifactRegistry` tracks all artifacts across collaboration phases
+  - No truncation of agent outputs
+
+- **File Verification System**:
+  - Ensures generated files have actual content (not 0 bytes)
+  - `FileVerifier` checks file size and structure
+  - `ContentVerifier` validates notebook cells and code quality
+
+- **Automated Deployment**:
+  - Strategy pattern supporting multiple targets
+  - Local: Configurable outputs directory (`AITRIL_OUTPUTS_DIR`)
+  - GitHub Pages: Auto-push to gh-pages branch
+  - AWS EC2: Deploy to EC2 instances
+  - Docker Hub: Build and push containers
+  - Vercel: Deploy web apps
+  - Heroku: Deploy backends
+  - `DeploymentManager` with auto-detection of project types
+  - Integrated into web interface with real-time UI
+
+- **Environment Configuration**:
+  - `AITRIL_OUTPUTS_DIR` environment variable for custom output paths
+  - Comprehensive `.env.example` with 275+ lines of documentation
+  - Docker volume mounting for seamless host/container file sharing
+
+### Changed
+- **Web Interface Improvements**:
+  - Port changed to 37142 (previously 8888)
+  - Deployment phase UI with target selection
+  - Real-time artifact visualization
+  - Enhanced settings management
+
 ## [0.0.32] - 2025-11-28
 
 ### Added
