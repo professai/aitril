@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .config import load_config, load_config_from_env
 from .orchestrator import AiTril
 from .coordinator import CoordinationStrategy
+from .settings import Settings
 
 
 class ChatMessage(BaseModel):
@@ -56,6 +57,9 @@ class ConnectionManager:
 # Global connection manager
 manager = ConnectionManager()
 
+# Global settings manager
+settings_manager = Settings()
+
 # Create FastAPI app
 app = FastAPI(title="AiTril Web Interface")
 
@@ -76,10 +80,12 @@ async def get_index():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>AiTril - Multi-Agent Orchestration</title>
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧬</text></svg>">
         <link rel="stylesheet" href="/static/style.css">
     </head>
     <body>
         <div id="app"></div>
+        <script src="/static/settings.js"></script>
         <script src="/static/app.js"></script>
     </body>
     </html>
@@ -139,11 +145,15 @@ async def websocket_endpoint(websocket: WebSocket):
             # Create AiTril instance
             aitril = AiTril(config, session_name=session, use_cache=True)
 
+            # Get initial planner setting
+            general_settings = settings_manager.get_general_settings()
+            initial_planner = general_settings.get("initial_planner", "none")
+
             # Execute based on mode
             if mode == "ask" and provider:
                 await handle_ask(websocket, aitril, prompt, provider)
             elif mode == "tri":
-                await handle_tri(websocket, aitril, prompt)
+                await handle_tri(websocket, aitril, prompt, initial_planner)
             elif mode in ["sequential", "consensus", "debate"]:
                 await handle_coordination(websocket, aitril, prompt, mode)
             elif mode == "build":
@@ -182,27 +192,68 @@ async def handle_ask(websocket: WebSocket, aitril: AiTril, prompt: str, provider
     })
 
 
-async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str):
-    """Handle tri-lam mode with parallel agent visualization."""
+async def handle_tri(websocket: WebSocket, aitril: AiTril, prompt: str, initial_planner: str = "none"):
+    """Handle tri-lam mode with parallel agent visualization or planner-first mode."""
     providers = aitril.get_enabled_providers()
 
     # Send tri-lam started event
     await manager.send_event(websocket, {
         "type": "trilam_started",
         "providers": providers,
+        "planner": initial_planner,
         "timestamp": datetime.now().isoformat()
     })
 
-    # Create tasks for each provider
-    tasks = []
-    for provider in providers:
-        task = asyncio.create_task(
-            stream_provider_response(websocket, aitril, provider, prompt)
-        )
-        tasks.append(task)
+    # If using planner-first mode, use non-streaming orchestrator
+    if initial_planner != "none" and initial_planner in providers:
+        # Send planner started event
+        await manager.send_event(websocket, {
+            "type": "agent_started",
+            "agent": initial_planner,
+            "role": "planner",
+            "timestamp": datetime.now().isoformat()
+        })
 
-    # Wait for all tasks to complete
-    await asyncio.gather(*tasks)
+        # Get responses using planner-first logic
+        responses = await aitril.ask_tri(prompt, initial_planner=initial_planner)
+
+        # Send planner response first
+        if initial_planner in responses:
+            await manager.send_event(websocket, {
+                "type": "agent_completed",
+                "agent": initial_planner,
+                "role": "planner",
+                "response": responses[initial_planner],
+                "timestamp": datetime.now().isoformat()
+            })
+
+        # Send other responses
+        for provider, response in responses.items():
+            if provider != initial_planner:
+                await manager.send_event(websocket, {
+                    "type": "agent_started",
+                    "agent": provider,
+                    "role": "builder",
+                    "timestamp": datetime.now().isoformat()
+                })
+                await manager.send_event(websocket, {
+                    "type": "agent_completed",
+                    "agent": provider,
+                    "role": "builder",
+                    "response": response,
+                    "timestamp": datetime.now().isoformat()
+                })
+    else:
+        # Use parallel streaming mode (original behavior)
+        tasks = []
+        for provider in providers:
+            task = asyncio.create_task(
+                stream_provider_response(websocket, aitril, provider, prompt)
+            )
+            tasks.append(task)
+
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
 
     # Send completion event
     await manager.send_event(websocket, {
@@ -498,6 +549,91 @@ async def handle_deployment(websocket: WebSocket, target: str):
         "status": "acknowledged",
         "timestamp": datetime.now().isoformat()
     })
+
+
+# Settings API endpoints
+@app.get("/api/settings")
+async def get_settings():
+    """Get all settings (excluding sensitive data)."""
+    return settings_manager.export_settings()
+
+
+@app.get("/api/settings/providers")
+async def get_providers():
+    """Get all LLM provider configurations."""
+    return settings_manager.get_llm_providers()
+
+
+@app.get("/api/settings/providers/enabled")
+async def get_enabled_providers():
+    """Get list of enabled provider IDs."""
+    return {"providers": settings_manager.get_enabled_providers()}
+
+
+@app.put("/api/settings/providers/{provider_id}")
+async def update_provider(provider_id: str, config: Dict[str, Any]):
+    """Update LLM provider configuration."""
+    success = settings_manager.update_provider(provider_id, config)
+    if success:
+        return {"status": "success", "provider_id": provider_id}
+    else:
+        return {"status": "error", "message": "Failed to update provider"}
+
+
+@app.post("/api/settings/providers/custom")
+async def add_custom_provider(
+    provider_id: str,
+    name: str,
+    api_key_env: str,
+    model: str,
+    base_url: str
+):
+    """Add a custom LLM provider."""
+    success = settings_manager.add_custom_provider(
+        provider_id, name, api_key_env, model, base_url
+    )
+    if success:
+        return {"status": "success", "provider_id": provider_id}
+    else:
+        return {"status": "error", "message": "Failed to add custom provider"}
+
+
+@app.get("/api/settings/deployments")
+async def get_deployment_targets():
+    """Get all deployment target configurations."""
+    return settings_manager.get_deployment_targets()
+
+
+@app.get("/api/settings/deployments/enabled")
+async def get_enabled_deployments():
+    """Get list of enabled deployment target IDs."""
+    return {"targets": settings_manager.get_enabled_targets()}
+
+
+@app.put("/api/settings/deployments/{target_id}")
+async def update_deployment_target(target_id: str, config: Dict[str, Any]):
+    """Update deployment target configuration."""
+    success = settings_manager.update_deployment_target(target_id, config)
+    if success:
+        return {"status": "success", "target_id": target_id}
+    else:
+        return {"status": "error", "message": "Failed to update deployment target"}
+
+
+@app.get("/api/settings/general")
+async def get_general_settings():
+    """Get general application settings."""
+    return settings_manager.get_general_settings()
+
+
+@app.put("/api/settings/general")
+async def update_general_settings(config: Dict[str, Any]):
+    """Update general application settings."""
+    success = settings_manager.update_general_settings(config)
+    if success:
+        return {"status": "success"}
+    else:
+        return {"status": "error", "message": "Failed to update general settings"}
 
 
 @app.get("/health")

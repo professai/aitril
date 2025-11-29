@@ -4,6 +4,7 @@ class AiTrilApp {
     constructor() {
         this.ws = null;
         this.currentMode = 'build';
+        this.initialPlanner = 'none';
         this.agents = {
             openai: { name: 'GPT-5.1', status: 'idle', response: '' },
             anthropic: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
@@ -381,6 +382,15 @@ class AiTrilApp {
         }
     }
 
+    getAgentEmoji(agentKey) {
+        const emojis = {
+            'openai': '🟢',
+            'anthropic': '🔵',
+            'gemini': '🟡'
+        };
+        return emojis[agentKey] || '⚪';
+    }
+
     renderAgents() {
         const container = document.querySelector('.agents-container');
         if (!container) return;
@@ -389,8 +399,9 @@ class AiTrilApp {
             <div class="agent-card ${key} ${agent.status === 'active' ? 'active' : ''}">
                 <div class="agent-header">
                     <div class="agent-name">
-                        <div class="agent-icon ${key}">${key[0].toUpperCase()}</div>
+                        <div class="agent-icon ${key}">${this.getAgentEmoji(key)}</div>
                         <span>${agent.name}</span>
+                        ${this.initialPlanner === key ? '<span class="planner-badge" title="Initial Planner">🏅</span>' : ''}
                     </div>
                     <div class="agent-status">
                         <div class="status-dot ${agent.status === 'active' ? 'active' : ''}"></div>
@@ -550,6 +561,9 @@ class AiTrilApp {
                             <button class="info-btn" data-mode="consensus" title="Learn about Consensus mode">ⓘ</button>
                         </div>
                     </div>
+                    <button class="settings-btn" onclick="window.app.settings.open()" title="Settings">
+                        ⚙️ Settings
+                    </button>
                 </div>
 
                 <div class="messages-container"></div>
@@ -590,6 +604,19 @@ class AiTrilApp {
 }
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new AiTrilApp();
+document.addEventListener('DOMContentLoaded', async () => {
+    window.app = new AiTrilApp();
+    window.app.settings = new SettingsManager(window.app);
+
+    // Load settings and apply default mode and initial planner
+    const settings = await window.app.settings.load();
+    if (settings && settings.general) {
+        if (settings.general.default_mode) {
+            window.app.currentMode = settings.general.default_mode;
+        }
+        if (settings.general.initial_planner) {
+            window.app.initialPlanner = settings.general.initial_planner;
+        }
+        window.app.render();
+    }
 });
