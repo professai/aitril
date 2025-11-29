@@ -517,7 +517,7 @@ class AnthropicProvider(Provider):
 
 
 class GeminiProvider(Provider):
-    """Google Gemini provider implementation."""
+    """Google Gemini provider implementation with function calling support."""
 
     def _get_env_var_name(self) -> str:
         return "GOOGLE_API_KEY"
@@ -526,11 +526,39 @@ class GeminiProvider(Provider):
         return "GEMINI_MODEL"
 
     def _default_model(self) -> str:
-        return "gemini-3-pro-preview"
+        return "gemini-2.0-flash-exp"  # Latest with function calling
+
+    def _convert_tools_to_gemini_format(self) -> List[Any]:
+        """Convert our tool definitions to Gemini's function declaration format."""
+        tools = self.tool_registry.get_openai_tools()
+
+        gemini_tools = []
+        for tool in tools:
+            func_def = tool["function"]
+            gemini_tools.append(
+                genai.protos.FunctionDeclaration(
+                    name=func_def["name"],
+                    description=func_def["description"],
+                    parameters=genai.protos.Schema(
+                        type=genai.protos.Type.OBJECT,
+                        properties={
+                            k: genai.protos.Schema(
+                                type=genai.protos.Type.STRING if v.get("type") == "string" else genai.protos.Type.OBJECT,
+                                description=v.get("description", "")
+                            )
+                            for k, v in func_def["parameters"]["properties"].items()
+                        },
+                        required=func_def["parameters"].get("required", [])
+                    )
+                )
+            )
+
+        return [genai.protos.Tool(function_declarations=gemini_tools)] if gemini_tools else []
 
     async def ask(self, prompt: str) -> str:
         """
         Send a prompt to Google Gemini and return the response.
+        Handles function calling automatically.
 
         Args:
             prompt: The prompt to send.
@@ -539,14 +567,62 @@ class GeminiProvider(Provider):
             Gemini's response as a string.
         """
         genai.configure(api_key=self.api_key)
-
-        # Wrap sync SDK call in executor to maintain async interface
         loop = asyncio.get_running_loop()
 
         def _sync_call():
-            model = genai.GenerativeModel(self.model)
-            response = model.generate_content(prompt)
-            return response.text
+            # Create model with tools if enabled
+            if self.enable_tools:
+                tools = self._convert_tools_to_gemini_format()
+                model = genai.GenerativeModel(self.model, tools=tools)
+            else:
+                model = genai.GenerativeModel(self.model)
+
+            chat = model.start_chat()
+
+            # Function calling loop
+            max_iterations = 5
+            for _ in range(max_iterations):
+                response = chat.send_message(prompt)
+
+                # Check if there are function calls
+                function_calls = []
+                text_parts = []
+
+                for part in response.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_parts.append(part.text)
+                    elif hasattr(part, 'function_call'):
+                        function_calls.append(part.function_call)
+
+                # If no function calls, return the text
+                if not function_calls:
+                    return "".join(text_parts)
+
+                # Execute function calls
+                function_responses = []
+                for func_call in function_calls:
+                    # Convert function call args to dict
+                    args = dict(func_call.args)
+
+                    # Execute the tool (sync version since we're in executor)
+                    result = asyncio.run(
+                        self.tool_registry.execute_tool(func_call.name, **args)
+                    )
+
+                    function_responses.append(
+                        genai.protos.Part(
+                            function_response=genai.protos.FunctionResponse(
+                                name=func_call.name,
+                                response={"result": result}
+                            )
+                        )
+                    )
+
+                # Send function responses back (this becomes the new prompt for next iteration)
+                prompt = genai.protos.Content(parts=function_responses)
+
+            # Return last text if max iterations reached
+            return "".join(text_parts)
 
         result = await loop.run_in_executor(None, _sync_call)
         return result or ""
@@ -554,26 +630,92 @@ class GeminiProvider(Provider):
     async def ask_stream(self, prompt: str):
         """
         Send a prompt to Google Gemini and yield response chunks in real-time.
+        Handles function calling by yielding execution info and continuing stream.
 
         Args:
             prompt: The prompt to send.
 
         Yields:
-            Text chunks as they arrive from Gemini.
+            Text chunks as they arrive from Gemini, plus tool execution info.
         """
         genai.configure(api_key=self.api_key)
         loop = asyncio.get_running_loop()
 
-        def _sync_stream():
-            model = genai.GenerativeModel(self.model)
-            response = model.generate_content(prompt, stream=True)
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
+        def _sync_stream_with_tools():
+            # Create model with tools if enabled
+            if self.enable_tools:
+                tools = self._convert_tools_to_gemini_format()
+                model = genai.GenerativeModel(self.model, tools=tools)
+            else:
+                model = genai.GenerativeModel(self.model)
 
-        # Run the sync streaming generator in executor and yield chunks
-        for chunk in await loop.run_in_executor(None, lambda: list(_sync_stream())):
-            yield chunk
+            chat = model.start_chat()
+            current_prompt = prompt
+
+            # Function calling loop with streaming
+            max_iterations = 5
+            for iteration in range(max_iterations):
+                response = chat.send_message(current_prompt, stream=True)
+
+                function_calls = []
+                text_parts = []
+
+                # Stream the response
+                for chunk in response:
+                    for part in chunk.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+                            yield ("text", part.text)
+                        elif hasattr(part, 'function_call'):
+                            function_calls.append(part.function_call)
+
+                # If no function calls, we're done
+                if not function_calls:
+                    break
+
+                # Execute function calls
+                function_responses = []
+                for func_call in function_calls:
+                    # Convert function call args to dict
+                    args = dict(func_call.args)
+
+                    # Yield tool execution info
+                    yield ("tool_start", f"\n\n🔧 **Executing tool:** `{func_call.name}`\n")
+                    yield ("tool_args", f"**Arguments:** {json.dumps(args, indent=2)}\n")
+
+                    # Execute the tool
+                    result = asyncio.run(
+                        self.tool_registry.execute_tool(func_call.name, **args)
+                    )
+
+                    # Yield tool result
+                    yield ("tool_result", f"**Result:**\n```\n{result}\n```\n\n")
+
+                    function_responses.append(
+                        genai.protos.Part(
+                            function_response=genai.protos.FunctionResponse(
+                                name=func_call.name,
+                                response={"result": result}
+                            )
+                        )
+                    )
+
+                # Send function responses back for next iteration
+                current_prompt = genai.protos.Content(parts=function_responses)
+
+                # Check if we hit max iterations
+                if iteration == max_iterations - 1:
+                    yield ("text", "\n(Maximum tool iterations reached)\n")
+                    break
+
+        # Run the streaming generator in executor
+        for item in await loop.run_in_executor(None, lambda: list(_sync_stream_with_tools())):
+            # item is a tuple of (type, content)
+            if item[0] == "text":
+                yield item[1]
+            else:
+                # Tool execution info - yield as-is
+                yield item[1]
 
 
 class OllamaProvider(Provider):
