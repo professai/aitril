@@ -53,6 +53,7 @@ Feature: AiTril CLI Interface
     Then the output should contain "Planning"
     And the output should contain "Implementation"
     And the output should contain "Review"
+    And the output should contain "Deployment"
     And the exit code should be 0
 
   Scenario: Invalid provider shows error
