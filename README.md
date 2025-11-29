@@ -10,20 +10,45 @@ AiTril is a neutral, open-source command-line interface that orchestrates multip
 
 ## Features
 
-- **Multi-Provider Support**: Integrate with OpenAI (GPT), Anthropic (Claude), and Google Gemini
+### Core Capabilities
+- **8-Provider Support**: Integrate with multiple LLM providers
+  - OpenAI (GPT-5.1, GPT-4o, GPT-4-Turbo)
+  - Anthropic (Claude Opus 4.5, Sonnet 4.5, Haiku 4.5)
+  - Google Gemini (Gemini 3 Pro Preview, 2.0 Flash)
+  - Ollama (local models)
+  - Llama.cpp (local models)
+  - Custom providers (3 configurable slots)
 - **Parallel Queries**: Send prompts to all providers simultaneously (tri-lam mode)
 - **Agent Coordination**: Multiple collaboration modes (sequential, consensus, debate)
+- **Initial Planner Mode**: Optional planning agent runs first to set strategy for other agents
 - **Code Building**: Agents collaborate to plan, implement, and review code with consensus
+- **Real-Time Streaming**: See responses as they're generated with visual progress indicators
+
+### Web Interface (NEW in v0.0.31)
+- **Modern Web UI**: Full-featured interface with FastAPI and WebSockets
+- **Live Agent Visualization**: Watch agents collaborate in real-time
+- **Settings Management**: Configure providers and deployment targets via UI
+- **Deployment Integration**: Deploy builds to multiple targets
+  - Local file system
+  - GitHub Pages
+  - AWS EC2
+  - Docker containers
+- **Port 37142**: Runs on dedicated port to avoid conflicts
+
+### Configuration & Management
 - **Tech Stack Preferences**: Configure your preferred languages, frameworks, and tools
 - **File Operations**: Safe file management with automatic backups and diff tracking
 - **Session Management**: Track conversations across chat and build sessions
 - **Smart Caching**: Store history, preferences, and context for continuity
-- **Real-Time Streaming**: See responses as they're generated with visual progress indicators
-- **Rich CLI Display**: Visual feedback with thinking indicators, task progress, and timing stats
 - **Simple Configuration**: Interactive setup wizard for easy provider configuration
+- **Environment Variables**: Load settings from .env files
+
+### Technical
 - **Async-First Design**: Built on Python asyncio for efficient concurrent operations
+- **Rich CLI Display**: Visual feedback with thinking indicators, task progress, and timing stats
 - **Privacy-Focused**: API keys and cache stored locally in your home directory
 - **Extensible**: Clean provider abstraction for adding new LLM providers
+- **Docker Support**: Run in containers for easy deployment
 
 ## Installation
 
@@ -209,53 +234,133 @@ aitril build "Create database migration" --project-root /path/to/project
 2. **Implementation Phase**: Agents build sequentially, seeing each other's code
 3. **Review Phase**: Agents review implementation and provide consensus feedback
 
-## Configuration
+## Web Interface
 
-AiTril stores configuration in `~/.config/aitril/config.toml` (or `%APPDATA%\aitril\config.toml` on Windows).
+AiTril now includes a full-featured web interface for visual collaboration and management.
 
-### Configuration File Structure
+### Starting the Web Server
 
-```toml
-[providers.openai]
-enabled = true
-api_key = "sk-..."  # Optional: can use OPENAI_API_KEY env var instead
-model = "gpt-5.1"
+```bash
+# Start with default settings (port 37142)
+aitril web
 
-[providers.anthropic]
-enabled = true
-api_key = "sk-ant-..."  # Optional: can use ANTHROPIC_API_KEY env var instead
-model = "claude-opus-4-5-20250929"
+# Or specify custom port
+aitril web --port 8080
 
-[providers.gemini]
-enabled = true
-api_key = "..."  # Optional: can use GOOGLE_API_KEY env var instead
-model = "gemini-3-pro-preview"
+# With auto-reload for development
+aitril web --reload
 ```
 
-### Environment Variables
+The web interface will be available at `http://localhost:37142`
 
-Instead of storing API keys in the config file, you can use environment variables:
+### Web UI Features
+
+- **Multiple Collaboration Modes**:
+  - Build (🏗️): Multi-phase with initial planner → planning → implementation → deployment
+  - Tri-lam (🧬): Parallel agents with optional initial planner
+  - Consensus (🤝): Agents debate to reach agreement
+  - Ask (💬): Single provider query
+
+- **Real-Time Agent Visualization**: Watch agents work in real-time with streaming responses
+
+- **Settings Management**:
+  - Configure all 8 LLM providers (enable/disable, set models, manage API keys)
+  - Set up deployment targets (GitHub Pages, AWS EC2, Docker, Local)
+  - Configure initial planner (runs first to set strategy)
+  - Manage general preferences (theme, default mode)
+
+- **Deployment Integration**: After build completion, deploy to:
+  - Local file system
+  - GitHub Pages (automatic git push)
+  - AWS EC2 (SSH deployment)
+  - Docker container
+
+### Configuration via Web UI
+
+Access settings by clicking the ⚙️ button in the sidebar to:
+
+1. **Configure Providers**: Enable/disable providers, set model versions, manage API keys
+2. **Set Initial Planner**: Choose which provider runs first in multi-agent modes
+3. **Configure Deployment**: Set up deployment targets with credentials
+4. **Customize UI**: Theme, default mode, and display preferences
+
+Settings are persisted to `~/.aitril/settings.json` and sync with CLI configuration.
+
+## Configuration
+
+AiTril stores configuration in `~/.aitril/settings.json` with support for `.env` files.
+
+### Configuration Priority
+
+Settings are loaded in this order (highest priority first):
+1. `~/.aitril/settings.json` - User settings (managed via CLI or web UI)
+2. `.env` file in project root - Environment variables
+3. `aitril/settings.py` - Default application settings
+
+### Settings File Structure
+
+```json
+{
+  "llm_providers": {
+    "openai": {
+      "name": "OpenAI",
+      "enabled": true,
+      "model": "gpt-5.1",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "enabled": true,
+      "model": "claude-opus-4.5-20251124",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "gemini": {
+      "name": "Google Gemini",
+      "enabled": true,
+      "model": "gemini-3-pro-preview",
+      "api_key_env": "GOOGLE_API_KEY"
+    },
+    "ollama": {
+      "name": "Ollama (Local)",
+      "enabled": true,
+      "model": "granite4:350m",
+      "base_url": "http://localhost:11434"
+    }
+  },
+  "general": {
+    "theme": "dark",
+    "default_mode": "build",
+    "initial_planner": "openai"
+  }
+}
+```
+
+### Environment Variables (.env file)
+
+Create a `.env` file in your project root:
 
 ```bash
 # API Keys
-export OPENAI_API_KEY="sk-..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GOOGLE_API_KEY="..."  # Google's standard env var for Gemini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...
 
-# Model Selection (optional)
-export OPENAI_MODEL="gpt-5.1"
-export ANTHROPIC_MODEL="claude-opus-4-5-20250929"
-export GEMINI_MODEL="gemini-3-pro-preview"
+# Model Selection (override defaults)
+OPENAI_MODEL=gpt-5.1
+ANTHROPIC_MODEL=claude-opus-4.5-20251124
+GEMINI_MODEL=gemini-3-pro-preview
+
+# Ollama Configuration (for local models)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=granite4:350m
 ```
 
-AiTril will automatically use these environment variables if no API key is specified in the configuration file.
+The web server automatically loads `.env` files at startup.
 
-### Cache and Session Storage
+### Storage Locations
 
-AiTril stores cache and session data separately from configuration:
-
-- **Config**: `~/.config/aitril/config.toml` (or `%APPDATA%\aitril\config.toml` on Windows)
-- **Cache**: `~/.cache/aitril/cache.json` (or `%LOCALAPPDATA%\aitril\cache\cache.json` on Windows)
+- **Settings**: `~/.aitril/settings.json` - User preferences and provider configuration
+- **Cache**: `~/.cache/aitril/cache.json` - Session history and conversation data
 
 The cache includes:
 - **Session history**: All prompts and responses organized by session
@@ -343,14 +448,23 @@ See `.env.example` for a template with links to get API keys.
 
 AiTril follows a modular architecture:
 
+### Core Modules
 - **`config.py`**: Configuration loading, saving, and interactive wizard
-- **`providers.py`**: Provider abstraction and implementations (OpenAI, Anthropic, Gemini)
+- **`settings.py`**: Settings management with JSON persistence and environment variable loading
+- **`providers.py`**: Provider abstraction and implementations for 8 LLM providers
 - **`orchestrator.py`**: Multi-provider orchestration and parallel query coordination
 - **`coordinator.py`**: Multi-agent coordination strategies (sequential, consensus, debate, code building)
 - **`cache.py`**: Session management, history tracking, tech stack preferences, and artifact storage
 - **`files.py`**: Safe file operations with automatic backups, diff tracking, and project structure creation
 - **`display.py`**: Rich CLI feedback with progress indicators and visual symbols
-- **`cli.py`**: Command-line interface with build, config, ask, tri, and cache commands
+- **`cli.py`**: Command-line interface with build, config, ask, tri, web, and cache commands
+
+### Web Interface
+- **`web.py`**: FastAPI web server with WebSocket support for real-time agent collaboration
+- **`static/app.js`**: Frontend JavaScript for chat interface and WebSocket handling
+- **`static/settings.js`**: Settings UI for provider and deployment configuration
+- **`static/style.css`**: Modern dark theme UI styling
+- **`templates/index.html`**: Main web interface template
 
 All provider calls are async-first using native async clients (`AsyncOpenAI`, `AsyncAnthropic`) for true concurrent streaming responses.
 
@@ -376,14 +490,25 @@ All provider calls are async-first using native async clients (`AsyncOpenAI`, `A
 - [x] Build artifact recording
 - [x] Code review coordination mode
 
+**Completed (v0.0.31):**
+- [x] Web interface with FastAPI and WebSockets
+- [x] 8-provider support (OpenAI, Anthropic, Gemini, Ollama, Llama.cpp, Custom1-3)
+- [x] Initial planner mode (configurable planning agent)
+- [x] Settings management UI
+- [x] Deployment integrations (GitHub Pages, AWS EC2, Docker, Local)
+- [x] Environment variable loading in web server
+- [x] JSON-based settings persistence
+- [x] Configuration validation tools
+
 **Planned:**
-- [ ] Additional provider support (Cohere, Mistral, local models via Ollama)
+- [ ] Additional provider support (Cohere, Mistral, Groq)
 - [ ] Plugin system for custom providers
 - [ ] Advanced preference learning
 - [ ] Database navigation tools
 - [ ] Agentic daemon framework
-- [ ] Web interface
-- [ ] REST API mode
+- [ ] REST API mode for programmatic access
+- [ ] Multi-user support with authentication
+- [ ] Cloud deployment templates (Kubernetes, Terraform)
 
 ## Contributing
 

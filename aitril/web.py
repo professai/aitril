@@ -6,6 +6,8 @@ Provides a Claude-style web interface with real-time agent visualization.
 
 import asyncio
 import json
+import os
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -18,6 +20,30 @@ from .config import load_config, load_config_from_env
 from .orchestrator import AiTril
 from .coordinator import CoordinationStrategy
 from .settings import Settings
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    import logging
+    logger = logging.getLogger("uvicorn")
+
+    # Try to load from project root directory
+    project_root = Path(__file__).parent.parent
+    env_file = project_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file, override=True)
+        logger.info(f"✓ Loaded environment variables from {env_file}")
+        # Verify API keys loaded
+        api_keys = {
+            "OPENAI": "SET" if os.environ.get("OPENAI_API_KEY") else "NOT SET",
+            "ANTHROPIC": "SET" if os.environ.get("ANTHROPIC_API_KEY") else "NOT SET",
+            "GOOGLE": "SET" if os.environ.get("GOOGLE_API_KEY") else "NOT SET"
+        }
+        logger.info(f"API Keys status: {api_keys}")
+    else:
+        logger.warning(f".env file not found at {env_file}")
+except ImportError:
+    pass  # dotenv not installed, skip
 
 
 class ChatMessage(BaseModel):
@@ -91,6 +117,14 @@ async def get_index():
     </html>
     """
     return HTMLResponse(content=html_content)
+
+
+@app.get("/favicon.ico")
+async def get_favicon():
+    """Serve favicon as SVG emoji."""
+    from fastapi.responses import Response
+    svg_content = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🧬</text></svg>"""
+    return Response(content=svg_content, media_type="image/svg+xml")
 
 
 @app.websocket("/ws")
@@ -644,4 +678,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=37142)

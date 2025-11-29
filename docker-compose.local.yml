@@ -53,7 +53,7 @@ services:
       - .:/app
       - aitril-settings:/root/.aitril
     ports:
-      - "8888:8888"
+      - "37142:37142"
     command: aitril web --host 0.0.0.0 --port 8888
     networks:
       - aitril-local-network

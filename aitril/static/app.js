@@ -4,12 +4,7 @@ class AiTrilApp {
     constructor() {
         this.ws = null;
         this.currentMode = 'build';
-        this.initialPlanner = 'none';
-        this.agents = {
-            openai: { name: 'GPT-5.1', status: 'idle', response: '' },
-            anthropic: { name: 'Claude Opus 4.5', status: 'idle', response: '' },
-            gemini: { name: 'Gemini 3 Pro', status: 'idle', response: '' }
-        };
+        this.agents = {}; // Will be populated from settings API
         this.currentPhase = null;
         this.messages = [];
         this.modeInfo = {
@@ -30,10 +25,71 @@ class AiTrilApp {
         this.init();
     }
 
-    init() {
+    async init() {
+        // Initialize settings manager
+        this.settings = new SettingsManager(this);
+        await this.settings.load();
+
+        // Load initial planner setting
+        this.initialPlanner = this.settings.settings?.general?.initial_planner || 'none';
+
+        await this.loadProviders();
         this.render();
         this.connectWebSocket();
         this.setupEventListeners();
+
+        // Expose to window for settings button
+        window.app = this;
+    }
+
+    async loadProviders() {
+        try {
+            const response = await fetch('/api/settings/providers');
+            const providers = await response.json();
+
+            // Initialize agents from settings (up to 8 providers)
+            this.agents = {};
+
+            // Add initial planner as first agent if configured
+            if (this.initialPlanner && this.initialPlanner !== 'none' && providers[this.initialPlanner]?.enabled) {
+                const plannerConfig = providers[this.initialPlanner];
+                this.agents[`planner_${this.initialPlanner}`] = {
+                    name: `📋 Planner (${plannerConfig.name})`,
+                    model: plannerConfig.model,
+                    status: 'idle',
+                    response: '',
+                    isPlanner: true
+                };
+            }
+
+            Object.entries(providers).forEach(([id, config]) => {
+                if (config.enabled) {
+                    this.agents[id] = {
+                        name: config.name || id,
+                        model: config.model || 'default',
+                        status: 'idle',
+                        response: ''
+                    };
+                }
+            });
+
+            // If no providers are enabled, set up defaults for demo
+            if (Object.keys(this.agents).length === 0) {
+                this.agents = {
+                    openai: { name: 'GPT (OpenAI)', model: 'gpt-5.1', status: 'idle', response: '' },
+                    anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4.5', status: 'idle', response: '' },
+                    gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro', status: 'idle', response: '' }
+                };
+            }
+        } catch (error) {
+            console.error('Failed to load providers:', error);
+            // Fall back to defaults
+            this.agents = {
+                openai: { name: 'GPT (OpenAI)', model: 'gpt-5.1', status: 'idle', response: '' },
+                anthropic: { name: 'Claude (Anthropic)', model: 'claude-opus-4.5', status: 'idle', response: '' },
+                gemini: { name: 'Gemini (Google)', model: 'gemini-3-pro', status: 'idle', response: '' }
+            };
+        }
     }
 
     connectWebSocket() {
@@ -90,11 +146,6 @@ class AiTrilApp {
                 this.setAgentStatus(event.agent, 'completed');
                 break;
 
-            case 'agent_error':
-                this.setAgentStatus(event.agent, 'error');
-                console.error('Agent error:', event.agent, event.error);
-                break;
-
             case 'trilam_started':
                 this.resetAgents();
                 break;
@@ -127,8 +178,36 @@ class AiTrilApp {
                 this.showDeploymentOptions(event.options);
                 break;
 
+            case 'deployment_started':
+                this.messages.push({
+                    type: 'status',
+                    content: `🚀 Starting deployment: ${event.name}`,
+                    timestamp: new Date()
+                });
+                this.renderMessages();
+                this.scrollToBottom();
+                break;
+
             case 'status_message':
-                this.addStatusMessage(event.message);
+                this.messages.push({
+                    type: 'status',
+                    content: event.message,
+                    timestamp: new Date()
+                });
+                this.renderMessages();
+                this.scrollToBottom();
+                break;
+
+            case 'deployment_completed':
+                this.messages.push({
+                    type: 'status',
+                    content: '✅ Deployment completed!',
+                    timestamp: new Date()
+                });
+                this.renderMessages();
+                this.scrollToBottom();
+                // Re-enable send button
+                document.querySelector('.send-btn').disabled = false;
                 break;
         }
     }
@@ -174,10 +253,16 @@ class AiTrilApp {
                 type: 'deployment_selected',
                 target: targetId
             }));
-
-            // Show status message
-            this.addStatusMessage(`🚀 Deploying to ${targetId}...`);
         }
+
+        // Add a status message to show selection
+        this.messages.push({
+            type: 'status',
+            content: `Deployment target selected: ${targetId}`,
+            timestamp: new Date()
+        });
+        this.renderMessages();
+        this.scrollToBottom();
     }
 
     setupEventListeners() {
@@ -281,16 +366,6 @@ class AiTrilApp {
         this.scrollToBottom();
     }
 
-    addStatusMessage(text) {
-        this.messages.push({
-            type: 'status',
-            content: text,
-            timestamp: new Date()
-        });
-        this.renderMessages();
-        this.scrollToBottom();
-    }
-
     addAgentMessage(agent) {
         // Check if we already have a message group for this agent in the current batch
         const lastMessage = this.messages[this.messages.length - 1];
@@ -382,13 +457,27 @@ class AiTrilApp {
         }
     }
 
-    getAgentEmoji(agentKey) {
-        const emojis = {
-            'openai': '🟢',
-            'anthropic': '🔵',
-            'gemini': '🟡'
+    getAgentIcon(agentId) {
+        // Return appropriate icon for each agent type
+        const icons = {
+            openai: 'G',
+            anthropic: 'C',
+            gemini: 'Gm',
+            ollama: 'O',
+            llamacpp: 'L',
+            custom1: 'C1',
+            custom2: 'C2',
+            custom3: 'C3'
         };
-        return emojis[agentKey] || '⚪';
+        return icons[agentId] || agentId[0].toUpperCase();
+    }
+
+    getAgentBadge(agent) {
+        // Add badge for local models
+        if (agent.model && (agent.model.includes('ollama') || agent.model.includes('llama'))) {
+            return '<span class="local-badge">LOCAL</span>';
+        }
+        return '';
     }
 
     renderAgents() {
@@ -399,9 +488,12 @@ class AiTrilApp {
             <div class="agent-card ${key} ${agent.status === 'active' ? 'active' : ''}">
                 <div class="agent-header">
                     <div class="agent-name">
-                        <div class="agent-icon ${key}">${this.getAgentEmoji(key)}</div>
-                        <span>${agent.name}</span>
-                        ${this.initialPlanner === key ? '<span class="planner-badge" title="Initial Planner">🏅</span>' : ''}
+                        <div class="agent-icon ${key}">${this.getAgentIcon(key)}</div>
+                        <div class="agent-info">
+                            <span class="agent-title">${agent.name}</span>
+                            ${agent.model ? `<span class="agent-model">${agent.model}</span>` : ''}
+                        </div>
+                        ${this.getAgentBadge(agent)}
                     </div>
                     <div class="agent-status">
                         <div class="status-dot ${agent.status === 'active' ? 'active' : ''}"></div>
@@ -482,14 +574,6 @@ class AiTrilApp {
                         </div>
                     </div>
                 `;
-            } else if (msg.type === 'status') {
-                return `
-                    <div class="message status">
-                        <div class="message-content status-message">
-                            ${this.escapeHtml(msg.content)}
-                        </div>
-                    </div>
-                `;
             }
             return '';
         }).join('');
@@ -534,6 +618,9 @@ class AiTrilApp {
                         <div class="app-title">AiTril</div>
                         <div class="app-subtitle">Multi-Agent Orchestration</div>
                     </div>
+                    <button class="settings-btn" onclick="window.app.settings.open()" title="Settings">
+                        ⚙️
+                    </button>
                 </div>
 
                 <div class="agents-container"></div>
@@ -561,9 +648,6 @@ class AiTrilApp {
                             <button class="info-btn" data-mode="consensus" title="Learn about Consensus mode">ⓘ</button>
                         </div>
                     </div>
-                    <button class="settings-btn" onclick="window.app.settings.open()" title="Settings">
-                        ⚙️ Settings
-                    </button>
                 </div>
 
                 <div class="messages-container"></div>
@@ -604,19 +688,6 @@ class AiTrilApp {
 }
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', async () => {
-    window.app = new AiTrilApp();
-    window.app.settings = new SettingsManager(window.app);
-
-    // Load settings and apply default mode and initial planner
-    const settings = await window.app.settings.load();
-    if (settings && settings.general) {
-        if (settings.general.default_mode) {
-            window.app.currentMode = settings.general.default_mode;
-        }
-        if (settings.general.initial_planner) {
-            window.app.initialPlanner = settings.general.initial_planner;
-        }
-        window.app.render();
-    }
+document.addEventListener('DOMContentLoaded', () => {
+    new AiTrilApp();
 });

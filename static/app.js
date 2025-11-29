@@ -26,10 +26,20 @@ class AiTrilApp {
     }
 
     async init() {
+        // Initialize settings manager
+        this.settings = new SettingsManager(this);
+        await this.settings.load();
+
+        // Load initial planner setting
+        this.initialPlanner = this.settings.settings?.general?.initial_planner || 'none';
+
         await this.loadProviders();
         this.render();
         this.connectWebSocket();
         this.setupEventListeners();
+
+        // Expose to window for settings button
+        window.app = this;
     }
 
     async loadProviders() {
@@ -39,6 +49,19 @@ class AiTrilApp {
 
             // Initialize agents from settings (up to 8 providers)
             this.agents = {};
+
+            // Add initial planner as first agent if configured
+            if (this.initialPlanner && this.initialPlanner !== 'none' && providers[this.initialPlanner]?.enabled) {
+                const plannerConfig = providers[this.initialPlanner];
+                this.agents[`planner_${this.initialPlanner}`] = {
+                    name: `📋 Planner (${plannerConfig.name})`,
+                    model: plannerConfig.model,
+                    status: 'idle',
+                    response: '',
+                    isPlanner: true
+                };
+            }
+
             Object.entries(providers).forEach(([id, config]) => {
                 if (config.enabled) {
                     this.agents[id] = {
@@ -547,6 +570,9 @@ class AiTrilApp {
                         <div class="app-title">AiTril</div>
                         <div class="app-subtitle">Multi-Agent Orchestration</div>
                     </div>
+                    <button class="settings-btn" onclick="window.app.settings.open()" title="Settings">
+                        ⚙️
+                    </button>
                 </div>
 
                 <div class="agents-container"></div>

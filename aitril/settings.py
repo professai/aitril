@@ -51,7 +51,7 @@ class Settings:
                     "name": "OpenAI",
                     "enabled": True,
                     "api_key_env": "OPENAI_API_KEY",
-                    "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
+                    "model": os.getenv("OPENAI_MODEL", "gpt-5.1"),
                     "base_url": None,
                     "custom": False
                 },
@@ -59,7 +59,7 @@ class Settings:
                     "name": "Anthropic",
                     "enabled": True,
                     "api_key_env": "ANTHROPIC_API_KEY",
-                    "model": os.getenv("ANTHROPIC_MODEL", "claude-opus-4-20250514"),
+                    "model": os.getenv("ANTHROPIC_MODEL", "claude-opus-4.5-20251124"),
                     "base_url": None,
                     "custom": False
                 },
@@ -67,7 +67,7 @@ class Settings:
                     "name": "Google Gemini",
                     "enabled": True,
                     "api_key_env": "GOOGLE_API_KEY",
-                    "model": os.getenv("GEMINI_MODEL", "gemini-1.5-pro"),
+                    "model": os.getenv("GEMINI_MODEL", "gemini-3-pro-preview"),
                     "base_url": None,
                     "custom": False
                 },
