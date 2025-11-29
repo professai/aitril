@@ -33,6 +33,8 @@ class AgentCoordinator:
             providers: Dictionary of provider name to Provider instance
         """
         self.providers = providers
+        # Set Claude as primary coordinator if available
+        self.primary_coordinator = self._get_primary_coordinator()
 
     async def coordinate_sequential(
         self,
@@ -48,12 +50,17 @@ class AgentCoordinator:
         Args:
             prompt: Original user prompt
             provider_order: Order to run providers. Uses all if None.
+                If None, Claude will be prioritized first.
 
         Returns:
             Dictionary of provider responses
         """
         if provider_order is None:
             provider_order = list(self.providers.keys())
+            # Prioritize Claude as first coordinator if available
+            if self.primary_coordinator and 'claude' in provider_order:
+                provider_order.remove('claude')
+                provider_order.insert(0, 'claude')
 
         responses = {}
         context_history = []
@@ -116,9 +123,9 @@ class AgentCoordinator:
         # Generate consensus summary
         consensus_prompt = self._build_consensus_prompt(prompt, responses)
 
-        # Use first available provider to generate consensus
-        first_provider = list(self.providers.values())[0]
-        consensus = await first_provider.ask(consensus_prompt)
+        # Use Claude as primary coordinator if available, otherwise first provider
+        coordinator = self.primary_coordinator or list(self.providers.values())[0]
+        consensus = await coordinator.ask(consensus_prompt)
 
         return {
             "individual_responses": responses,
@@ -310,6 +317,29 @@ class AgentCoordinator:
             review_prompt += f"\nTech stack context: {stack_info}"
 
         return await self.coordinate_consensus(review_prompt)
+
+    def _get_primary_coordinator(self) -> Optional[Provider]:
+        """
+        Get the primary coordinator provider.
+
+        Returns Claude (ClaudeCodeProvider) if available, otherwise None.
+        Claude Code is preferred for coordination and synthesis tasks due to
+        its agentic and code-building capabilities.
+        """
+        from .providers import ClaudeCodeProvider
+
+        # Check if 'claude' provider is available and is ClaudeCodeProvider
+        if 'claude' in self.providers:
+            provider = self.providers['claude']
+            if isinstance(provider, ClaudeCodeProvider):
+                return provider
+
+        # Also check by type in case the key is different
+        for provider in self.providers.values():
+            if isinstance(provider, ClaudeCodeProvider):
+                return provider
+
+        return None
 
     def _build_planning_prompt(
         self,

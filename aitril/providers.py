@@ -880,30 +880,41 @@ class LlamaCppProvider(Provider):
 # These providers use code/agent-specialized tools instead of general APIs
 
 
-class ClaudeCodeProvider(Provider):
+class ClaudeCodeProvider(AnthropicProvider):
     """
-    Claude Code CLI Provider - shells out to actual claude binary.
+    Hybrid Claude Code Provider - PRIMARY: Claude Code CLI | FALLBACK: Anthropic API
 
-    Executes: claude -p "prompt" --model claude-opus-4-5-20251101
+    Priority order:
+    1. Claude Code CLI (when available) - full code/agent capabilities
+    2. Anthropic API (fallback) - for Docker/headless environments
 
-    This uses the ACTUAL Claude Code CLI tool instead of general Anthropic API,
-    providing proper code/agent context and capabilities.
+    This provides seamless operation in both local development (with Claude Code)
+    and containerized deployments (using API with same models).
     """
-
-    def _get_env_var_name(self) -> str:
-        return "ANTHROPIC_API_KEY"
 
     def _get_model_env_var_name(self) -> str:
         return "CLAUDE_CODE_MODEL"
 
     def _default_model(self) -> str:
+        """Use code/agent-optimized Claude model."""
+        # Priority: CLAUDE_CODE_MODEL > ANTHROPIC_MODEL > hardcoded fallback
+        specialized = os.environ.get("CLAUDE_CODE_MODEL")
+        if specialized:
+            return specialized
+
+        # Fall back to general ANTHROPIC_MODEL from .env
+        general = os.environ.get("ANTHROPIC_MODEL")
+        if general:
+            return general
+
+        # Only if both missing, use hardcoded fallback
         return "claude-opus-4-5-20251101"
 
     def _get_claude_cli_path(self) -> str:
         """Get path to claude CLI binary."""
         # Try environment variable first
         cli_path = os.environ.get("CLAUDE_CODE_CLI_PATH")
-        if cli_path:
+        if cli_path and os.path.exists(cli_path):
             return cli_path
 
         # Try to find in PATH
@@ -912,19 +923,15 @@ class ClaudeCodeProvider(Provider):
         if claude_path:
             return claude_path
 
-        # Default fallback
-        return "/usr/local/bin/claude"
+        # No CLI found
+        return None
 
-    async def ask(self, prompt: str) -> str:
-        """
-        Execute claude CLI and return response.
+    def _is_cli_available(self) -> bool:
+        """Check if Claude Code CLI is available."""
+        return self._get_claude_cli_path() is not None
 
-        Args:
-            prompt: User prompt
-
-        Returns:
-            Claude Code response
-        """
+    async def _ask_via_cli(self, prompt: str) -> str:
+        """Execute claude CLI and return response (PRIMARY METHOD)."""
         claude_cli = self._get_claude_cli_path()
 
         # Build command
@@ -934,39 +941,24 @@ class ClaudeCodeProvider(Provider):
             "--model", self.model
         ]
 
-        try:
-            # Execute claude CLI
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "ANTHROPIC_API_KEY": self.api_key}
-            )
+        # Execute claude CLI
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "ANTHROPIC_API_KEY": self.api_key}
+        )
 
-            stdout, stderr = await process.communicate()
+        stdout, stderr = await process.communicate()
 
-            if process.returncode != 0:
-                error_msg = stderr.decode('utf-8')
-                raise RuntimeError(f"Claude Code CLI error: {error_msg}")
+        if process.returncode != 0:
+            error_msg = stderr.decode('utf-8')
+            raise RuntimeError(f"Claude Code CLI error: {error_msg}")
 
-            return stdout.decode('utf-8').strip()
+        return stdout.decode('utf-8').strip()
 
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Claude Code CLI not found at {claude_cli}. "
-                "Install Claude Code or set CLAUDE_CODE_CLI_PATH environment variable."
-            )
-
-    async def ask_stream(self, prompt: str) -> AsyncGenerator[str, None]:
-        """
-        Execute claude CLI with streaming output.
-
-        Args:
-            prompt: User prompt
-
-        Yields:
-            Text chunks from Claude Code
-        """
+    async def _ask_stream_via_cli(self, prompt: str) -> AsyncGenerator[str, None]:
+        """Execute claude CLI with streaming output (PRIMARY METHOD)."""
         claude_cli = self._get_claude_cli_path()
 
         # Build command (streaming mode)
@@ -977,34 +969,84 @@ class ClaudeCodeProvider(Provider):
             "--stream"  # Enable streaming if supported
         ]
 
-        try:
-            # Execute claude CLI with streaming
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "ANTHROPIC_API_KEY": self.api_key}
-            )
+        # Execute claude CLI with streaming
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "ANTHROPIC_API_KEY": self.api_key}
+        )
 
-            # Stream output line by line
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                yield line.decode('utf-8')
+        # Stream output line by line
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            yield line.decode('utf-8')
 
-            await process.wait()
+        await process.wait()
 
-            if process.returncode != 0:
-                stderr_output = await process.stderr.read()
-                error_msg = stderr_output.decode('utf-8')
-                raise RuntimeError(f"Claude Code CLI error: {error_msg}")
+        if process.returncode != 0:
+            stderr_output = await process.stderr.read()
+            error_msg = stderr_output.decode('utf-8')
+            raise RuntimeError(f"Claude Code CLI error: {error_msg}")
 
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Claude Code CLI not found at {claude_cli}. "
-                "Install Claude Code or set CLAUDE_CODE_CLI_PATH environment variable."
-            )
+    async def ask(self, prompt: str) -> str:
+        """
+        Query Claude with hybrid approach.
+
+        Primary: Claude Code CLI (full capabilities)
+        Fallback: Anthropic API (Docker/headless)
+
+        Args:
+            prompt: User prompt
+
+        Returns:
+            Claude response
+        """
+        # PRIMARY: Try Claude Code CLI first
+        if self._is_cli_available():
+            try:
+                return await self._ask_via_cli(prompt)
+            except Exception as e:
+                # If CLI fails, log and fall back to API
+                print(f"⚠️  Claude Code CLI failed: {e}")
+                print(f"↪️  Falling back to Anthropic API")
+
+        # FALLBACK: Use Anthropic API
+        # Enhance prompt for code/agent context
+        code_prompt = f"[CODE/AGENT TASK] {prompt}"
+        return await super().ask(code_prompt)
+
+    async def ask_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+        """
+        Query Claude with streaming, using hybrid approach.
+
+        Primary: Claude Code CLI (full capabilities)
+        Fallback: Anthropic API (Docker/headless)
+
+        Args:
+            prompt: User prompt
+
+        Yields:
+            Text chunks from Claude
+        """
+        # PRIMARY: Try Claude Code CLI first
+        if self._is_cli_available():
+            try:
+                async for chunk in self._ask_stream_via_cli(prompt):
+                    yield chunk
+                return
+            except Exception as e:
+                # If CLI fails, log and fall back to API
+                print(f"⚠️  Claude Code CLI failed: {e}")
+                print(f"↪️  Falling back to Anthropic API")
+
+        # FALLBACK: Use Anthropic API
+        # Enhance prompt for code/agent context
+        code_prompt = f"[CODE/AGENT TASK] {prompt}"
+        async for chunk in super().ask_stream(code_prompt):
+            yield chunk
 
 
 class OpenAICodexProvider(OpenAIProvider):

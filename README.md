@@ -35,6 +35,40 @@ AiTril is a neutral, open-source command-line interface that orchestrates multip
   - Docker containers
 - **Port 37142**: Runs on dedicated port to avoid conflicts
 
+### Specialized Providers (NEW in v0.0.35)
+
+AiTril now includes specialized provider implementations optimized for specific capabilities:
+
+| Provider | Unique Strength | Best Use Cases |
+|----------|----------------|----------------|
+| **OpenAI Codex** | Code generation, analysis, optimization | Writing production code, refactoring, algorithm optimization |
+| **Gemini ADK** | Agent reasoning, planning, coordination | Multi-agent workflows, deployment planning, orchestration |
+| **Claude Code** | CLI tools, file operations, bash execution | File management, system commands, development automation |
+
+**OpenAI Codex Provider**
+- Optimized for advanced code generation and completion
+- Deep code understanding with complexity analysis
+- Production-ready code with type hints and documentation
+- Algorithmic optimization and refactoring
+- Best for: Creating clean, well-documented code and optimizing existing implementations
+
+**Gemini ADK (Agent Development Kit) Provider**
+- Advanced agentic reasoning and planning capabilities
+- Multi-step problem solving with risk assessment
+- Multi-agent coordination and workflow design
+- Strategic planning with rollback strategies
+- Best for: Complex deployment planning, agent coordination, and architectural decision-making
+
+**Claude Code Provider (Hybrid)**
+- **PRIMARY**: Claude Code CLI for full code/agent capabilities (local development)
+- **FALLBACK**: Anthropic API for Docker/headless environments
+- File system operations (read, write, edit)
+- Bash command execution
+- Default coordinator for all multi-agent workflows
+- Best for: Development tasks requiring file operations and system interaction
+
+All specialized providers work seamlessly in tri-lam mode, consensus coordination, and code building workflows.
+
 ### Configuration & Management
 - **Tech Stack Preferences**: Configure your preferred languages, frameworks, and tools
 - **File Operations**: Safe file management with automatic backups and diff tracking
