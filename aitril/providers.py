@@ -2,18 +2,21 @@
 Provider abstraction and implementations for AiTril.
 
 Supports OpenAI (GPT), Anthropic (Claude), Google Gemini, Ollama, and Llama.cpp providers.
+Includes function calling / tool use support for all providers.
 """
 
 import asyncio
 import os
 import json
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List, Dict, Any, AsyncGenerator
 
 import openai
 import anthropic
 import google.generativeai as genai
 import httpx
+
+from .tools import get_tool_registry, ToolRegistry
 
 
 class Provider(ABC):
@@ -29,6 +32,8 @@ class Provider(ABC):
         self.config = config
         self.api_key = self._get_api_key()
         self.model = self._get_model()
+        self.tool_registry: ToolRegistry = get_tool_registry()
+        self.enable_tools: bool = config.get("enable_tools", True)
 
     @abstractmethod
     def _get_env_var_name(self) -> str:
@@ -124,7 +129,7 @@ class Provider(ABC):
 
 
 class OpenAIProvider(Provider):
-    """OpenAI (GPT) provider implementation."""
+    """OpenAI (GPT) provider implementation with tool calling support."""
 
     def _get_env_var_name(self) -> str:
         return "OPENAI_API_KEY"
@@ -133,11 +138,12 @@ class OpenAIProvider(Provider):
         return "OPENAI_MODEL"
 
     def _default_model(self) -> str:
-        return "gpt-5.1"
+        return "gpt-4o"  # gpt-4o supports function calling better than gpt-5.1
 
     async def ask(self, prompt: str) -> str:
         """
         Send a prompt to OpenAI and return the response.
+        Handles tool calls automatically.
 
         Args:
             prompt: The prompt to send.
@@ -145,54 +151,174 @@ class OpenAIProvider(Provider):
         Returns:
             GPT's response as a string.
         """
-        client = openai.OpenAI(api_key=self.api_key)
+        client = openai.AsyncOpenAI(api_key=self.api_key)
 
-        # Wrap sync SDK call in executor to maintain async interface
-        loop = asyncio.get_running_loop()
+        messages = [{"role": "user", "content": prompt}]
+        tools = self.tool_registry.get_openai_tools() if self.enable_tools else None
 
-        def _sync_call():
-            response = client.responses.create(
+        # Tool calling loop
+        max_iterations = 5  # Prevent infinite loops
+        for _ in range(max_iterations):
+            response = await client.chat.completions.create(
                 model=self.model,
-                input=[{"role": "user", "content": prompt}],
-                text={"format": {"type": "text"}},
-                max_output_tokens=1000
+                messages=messages,
+                tools=tools,
+                max_tokens=2000
             )
-            return response.output_text
 
-        result = await loop.run_in_executor(None, _sync_call)
-        return result or ""
+            message = response.choices[0].message
+
+            # If no tool calls, return the response
+            if not message.tool_calls:
+                return message.content or ""
+
+            # Add assistant's response to messages
+            messages.append({
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    }
+                    for tc in message.tool_calls
+                ]
+            })
+
+            # Execute each tool call
+            for tool_call in message.tool_calls:
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
+
+                # Execute tool
+                result = await self.tool_registry.execute_tool(function_name, **function_args)
+
+                # Add tool result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result
+                })
+
+        # If we hit max iterations, return last message
+        return message.content or ""
 
     async def ask_stream(self, prompt: str):
         """
         Send a prompt to OpenAI and yield response chunks in real-time.
+        Handles tool calls by yielding tool execution info and continuing stream.
 
         Args:
             prompt: The prompt to send.
 
         Yields:
-            Text chunks as they arrive from OpenAI.
+            Text chunks as they arrive from OpenAI, plus tool execution info.
         """
-        # Use native async client for true async streaming
         client = openai.AsyncOpenAI(api_key=self.api_key)
 
-        stream = await client.responses.create(
-            model=self.model,
-            input=[{"role": "user", "content": prompt}],
-            text={"format": {"type": "text"}},
-            max_output_tokens=1000,
-            stream=True
-        )
+        messages = [{"role": "user", "content": prompt}]
+        tools = self.tool_registry.get_openai_tools() if self.enable_tools else None
 
-        async for chunk in stream:
-            # The responses API uses event-based streaming
-            # Text content comes in response.output_text.delta events
-            if hasattr(chunk, 'type') and chunk.type == 'response.output_text.delta':
-                if hasattr(chunk, 'delta') and chunk.delta:
-                    yield chunk.delta
+        # Tool calling loop with streaming
+        max_iterations = 5
+        for iteration in range(max_iterations):
+            tool_calls_accumulator = []
+            current_tool_call = {"id": "", "function": {"name": "", "arguments": ""}}
+            content_parts = []
+
+            stream = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                max_tokens=2000,
+                stream=True
+            )
+
+            async for chunk in stream:
+                delta = chunk.choices[0].delta
+
+                # Stream text content
+                if delta.content:
+                    content_parts.append(delta.content)
+                    yield delta.content
+
+                # Accumulate tool calls
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        if tc_delta.id:
+                            # New tool call
+                            if current_tool_call["id"]:
+                                tool_calls_accumulator.append(current_tool_call.copy())
+                            current_tool_call = {
+                                "id": tc_delta.id,
+                                "function": {"name": "", "arguments": ""}
+                            }
+
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                current_tool_call["function"]["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                current_tool_call["function"]["arguments"] += tc_delta.function.arguments
+
+            # Add final tool call if exists
+            if current_tool_call["id"]:
+                tool_calls_accumulator.append(current_tool_call)
+
+            # If no tool calls, we're done
+            if not tool_calls_accumulator:
+                break
+
+            # Add assistant message with tool calls
+            messages.append({
+                "role": "assistant",
+                "content": "".join(content_parts) if content_parts else None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"]
+                        }
+                    }
+                    for tc in tool_calls_accumulator
+                ]
+            })
+
+            # Execute tool calls and yield results
+            for tool_call in tool_calls_accumulator:
+                function_name = tool_call["function"]["name"]
+                function_args = json.loads(tool_call["function"]["arguments"])
+
+                # Yield tool execution indicator
+                yield f"\n\n🔧 **Executing tool:** `{function_name}`\n"
+                yield f"**Arguments:** {json.dumps(function_args, indent=2)}\n"
+
+                # Execute tool
+                result = await self.tool_registry.execute_tool(function_name, **function_args)
+
+                # Yield tool result
+                yield f"**Result:**\n```\n{result}\n```\n\n"
+
+                # Add tool result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": result
+                })
+
+            # If this was the last iteration, break
+            if iteration == max_iterations - 1:
+                yield "\n(Maximum tool iterations reached)\n"
+                break
 
 
 class AnthropicProvider(Provider):
-    """Anthropic (Claude) provider implementation."""
+    """Anthropic (Claude) provider implementation with tool use support."""
 
     def _get_env_var_name(self) -> str:
         return "ANTHROPIC_API_KEY"
@@ -201,11 +327,12 @@ class AnthropicProvider(Provider):
         return "ANTHROPIC_MODEL"
 
     def _default_model(self) -> str:
-        return "claude-opus-4-5-20250929"
+        return "claude-opus-4-5-20251124"  # Latest Opus 4.5
 
     async def ask(self, prompt: str) -> str:
         """
         Send a prompt to Anthropic Claude and return the response.
+        Handles tool use automatically.
 
         Args:
             prompt: The prompt to send.
@@ -213,42 +340,180 @@ class AnthropicProvider(Provider):
         Returns:
             Claude's response as a string.
         """
-        client = anthropic.Anthropic(api_key=self.api_key)
+        client = anthropic.AsyncAnthropic(api_key=self.api_key)
 
-        # Wrap sync SDK call in executor to maintain async interface
-        loop = asyncio.get_running_loop()
+        messages = [{"role": "user", "content": prompt}]
+        tools = self.tool_registry.get_anthropic_tools() if self.enable_tools else None
 
-        def _sync_call():
-            message = client.messages.create(
+        # Tool use loop
+        max_iterations = 5
+        for _ in range(max_iterations):
+            response = await client.messages.create(
                 model=self.model,
-                max_tokens=1000,
-                messages=[{"role": "user", "content": prompt}]
+                max_tokens=2000,
+                messages=messages,
+                tools=tools if tools else anthropic.NOT_GIVEN
             )
-            return message.content[0].text
 
-        result = await loop.run_in_executor(None, _sync_call)
-        return result or ""
+            # Extract text content
+            text_content = []
+            tool_uses = []
+
+            for block in response.content:
+                if block.type == "text":
+                    text_content.append(block.text)
+                elif block.type == "tool_use":
+                    tool_uses.append(block)
+
+            # If no tool uses, return the text
+            if not tool_uses:
+                return "".join(text_content)
+
+            # Add assistant message to conversation
+            messages.append({
+                "role": "assistant",
+                "content": response.content
+            })
+
+            # Execute tools and add results
+            tool_results = []
+            for tool_use in tool_uses:
+                result = await self.tool_registry.execute_tool(
+                    tool_use.name,
+                    **tool_use.input
+                )
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use.id,
+                    "content": result
+                })
+
+            # Add tool results as user message
+            messages.append({
+                "role": "user",
+                "content": tool_results
+            })
+
+        # Return last text if max iterations reached
+        return "".join(text_content)
 
     async def ask_stream(self, prompt: str):
         """
         Send a prompt to Anthropic Claude and yield response chunks in real-time.
+        Handles tool use by yielding tool execution info and continuing stream.
 
         Args:
             prompt: The prompt to send.
 
         Yields:
-            Text chunks as they arrive from Claude.
+            Text chunks as they arrive from Claude, plus tool execution info.
         """
-        # Use native async client for true async streaming
         client = anthropic.AsyncAnthropic(api_key=self.api_key)
 
-        async with client.messages.stream(
-            model=self.model,
-            max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}]
-        ) as stream:
-            async for text in stream.text_stream:
-                yield text
+        messages = [{"role": "user", "content": prompt}]
+        tools = self.tool_registry.get_anthropic_tools() if self.enable_tools else None
+
+        # Tool use loop with streaming
+        max_iterations = 5
+        for iteration in range(max_iterations):
+            text_content = []
+            tool_uses = []
+            current_tool_use = None
+            current_tool_input = ""
+
+            async with client.messages.stream(
+                model=self.model,
+                max_tokens=2000,
+                messages=messages,
+                tools=tools if tools else anthropic.NOT_GIVEN
+            ) as stream:
+                async for event in stream:
+                    # Handle text content
+                    if event.type == "content_block_start":
+                        if hasattr(event, "content_block") and event.content_block.type == "text":
+                            pass  # Text block started
+                        elif hasattr(event, "content_block") and event.content_block.type == "tool_use":
+                            current_tool_use = {
+                                "id": event.content_block.id,
+                                "name": event.content_block.name,
+                                "input": {}
+                            }
+                            current_tool_input = ""
+
+                    elif event.type == "content_block_delta":
+                        if hasattr(event, "delta"):
+                            if event.delta.type == "text_delta":
+                                text = event.delta.text
+                                text_content.append(text)
+                                yield text
+                            elif event.delta.type == "input_json_delta":
+                                current_tool_input += event.delta.partial_json
+
+                    elif event.type == "content_block_stop":
+                        if current_tool_use:
+                            # Parse accumulated JSON input
+                            try:
+                                current_tool_use["input"] = json.loads(current_tool_input)
+                            except json.JSONDecodeError:
+                                current_tool_use["input"] = {}
+                            tool_uses.append(current_tool_use)
+                            current_tool_use = None
+                            current_tool_input = ""
+
+            # If no tool uses, we're done
+            if not tool_uses:
+                break
+
+            # Build content list with text and tool uses
+            content_blocks = []
+            if text_content:
+                content_blocks.append({"type": "text", "text": "".join(text_content)})
+            for tu in tool_uses:
+                content_blocks.append({
+                    "type": "tool_use",
+                    "id": tu["id"],
+                    "name": tu["name"],
+                    "input": tu["input"]
+                })
+
+            # Add assistant message
+            messages.append({
+                "role": "assistant",
+                "content": content_blocks
+            })
+
+            # Execute tools and yield results
+            tool_results = []
+            for tool_use in tool_uses:
+                # Yield tool execution indicator
+                yield f"\n\n🔧 **Executing tool:** `{tool_use['name']}`\n"
+                yield f"**Arguments:** {json.dumps(tool_use['input'], indent=2)}\n"
+
+                # Execute tool
+                result = await self.tool_registry.execute_tool(
+                    tool_use["name"],
+                    **tool_use["input"]
+                )
+
+                # Yield tool result
+                yield f"**Result:**\n```\n{result}\n```\n\n"
+
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use["id"],
+                    "content": result
+                })
+
+            # Add tool results as user message
+            messages.append({
+                "role": "user",
+                "content": tool_results
+            })
+
+            # If this was the last iteration, break
+            if iteration == max_iterations - 1:
+                yield "\n(Maximum tool iterations reached)\n"
+                break
 
 
 class GeminiProvider(Provider):
