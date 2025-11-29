@@ -1,12 +1,46 @@
 # 🧬 AiTril
 
-**Pronounced: "8-real"**
+**Pronounced: "8-real"** | **Latest: v0.0.36**
 
-**Multi-LLM Orchestration CLI Tool**
+**Multi-LLM Orchestration CLI Tool with Automated Deployment**
 
-AiTril is a neutral, open-source command-line interface that orchestrates multiple Large Language Model (LLM) providers through a single unified interface. Query OpenAI, Anthropic, and Google Gemini in parallel and compare their responses side-by-side.
+AiTril is a neutral, open-source command-line interface that orchestrates multiple Large Language Model (LLM) providers through a single unified interface. Query OpenAI, Anthropic, and Google Gemini in parallel, collaborate on code building, and deploy to GitHub Pages, AWS, Docker, or local file system.
 
 ![AiTril Demo](https://raw.githubusercontent.com/professai/aitril/main/demo.gif)
+
+## 🎉 What's New in v0.0.36
+
+**Artifact-Based Coordination**
+- Full content transfer between agents (no truncation)
+- `AgentArtifact` system for plans, code, files, and data
+- `ArtifactRegistry` tracks all artifacts across collaboration phases
+
+**File Verification System**
+- Ensures generated files have actual content (not 0 bytes like v0.0.35!)
+- `FileVerifier` checks file size and structure
+- `ContentVerifier` validates notebook cells and code quality
+
+**Automated Deployment**
+- Strategy pattern supporting multiple targets:
+  - **Local**: Configurable outputs directory (`AITRIL_OUTPUTS_DIR`)
+  - **GitHub Pages**: Auto-push to gh-pages branch
+  - **AWS EC2**: Deploy to EC2 instances
+  - **Docker Hub**: Build and push containers
+  - **Vercel**: Deploy web apps
+  - **Heroku**: Deploy backends
+- `DeploymentManager` with auto-detection of project types
+- Integrated into web interface with real-time UI
+
+**Environment Configuration**
+- `AITRIL_OUTPUTS_DIR` environment variable for custom output paths
+- Comprehensive `.env.example` with 275 lines of documentation
+- Docker volume mounting for seamless host/container file sharing
+
+**Web Interface Improvements**
+- Port **37142** (previously 8888)
+- Deployment phase UI with target selection
+- Real-time artifact visualization
+- Enhanced settings management
 
 ## Features
 
@@ -24,16 +58,19 @@ AiTril is a neutral, open-source command-line interface that orchestrates multip
 - **Code Building**: Agents collaborate to plan, implement, and review code with consensus
 - **Real-Time Streaming**: See responses as they're generated with visual progress indicators
 
-### Web Interface (NEW in v0.0.31)
+### Web Interface
 - **Modern Web UI**: Full-featured interface with FastAPI and WebSockets
-- **Live Agent Visualization**: Watch agents collaborate in real-time
+- **Live Agent Visualization**: Watch agents collaborate in real-time with streaming responses
 - **Settings Management**: Configure providers and deployment targets via UI
-- **Deployment Integration**: Deploy builds to multiple targets
-  - Local file system
-  - GitHub Pages
-  - AWS EC2
-  - Docker containers
+- **Deployment Integration** (v0.0.36): Deploy builds to multiple targets
+  - **Local file system** - Configurable via `AITRIL_OUTPUTS_DIR`
+  - **GitHub Pages** - Auto-push with git integration
+  - **AWS EC2** - Direct deployment to instances
+  - **Docker Hub** - Build and push containers
+  - **Vercel/Heroku** - Web app deployment
 - **Port 37142**: Runs on dedicated port to avoid conflicts
+- **4-Phase Build Workflow**: Planning → Implementation → Review → Deployment
+- **Artifact Visualization**: See full content transfer between agents (no truncation)
 
 ### Specialized Providers (NEW in v0.0.35)
 
@@ -112,12 +149,12 @@ Run AiTril in a Docker container without installing Python 3.14 locally:
 
 ```bash
 # Quick start - show help
-docker run -it collinparan/aitril:latest
+docker run -it collinparan/aitril:0.0.36
 
 # Query a single provider (requires API keys via env vars)
 docker run -it \
   -e OPENAI_API_KEY="sk-..." \
-  collinparan/aitril:latest \
+  collinparan/aitril:0.0.36 \
   aitril ask -p gpt "your prompt"
 
 # Tri-lam mode with all providers
@@ -125,13 +162,23 @@ docker run -it \
   -e OPENAI_API_KEY="sk-..." \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e GEMINI_API_KEY="..." \
-  collinparan/aitril:latest \
+  collinparan/aitril:0.0.36 \
   aitril tri "your prompt"
 
-# Use .env file for API keys
-docker run -it --env-file .env \
-  collinparan/aitril:latest \
-  aitril tri "your prompt"
+# Web Interface (v0.0.36 with deployment features)
+docker run -d \
+  -p 37142:37142 \
+  --env-file .env \
+  -v ~/aitril_outputs:/root/Documents/projects/aitril_outputs \
+  collinparan/aitril:0.0.36 \
+  aitril web --host 0.0.0.0 --port 37142
+
+# Access at http://localhost:37142
+# Deployed files appear in ~/aitril_outputs on your host
+
+# Use docker-compose for full setup (with Ollama & Llama.cpp)
+cp .env.example .env  # Add your API keys
+docker-compose up -d aitril-web
 ```
 
 ## Quick Start

@@ -1,349 +1,405 @@
 """
-AiTril Deployment Module
+Deployment - Flexible deployment system supporting multiple targets.
 
-Handles deployment of generated code to various targets:
+Strategy pattern implementation that adapts to user requirements:
+- Google Colab (notebooks)
+- GitHub Pages (static sites)
+- AWS (various services)
+- Heroku (web apps)
+- Vercel (web apps)
+- Docker Hub (containers)
+- PyPI (Python packages)
 - Local file system
-- Docker container
-- GitHub Pages
-- AWS EC2
-- Vercel/Netlify
 """
-
 import os
+import json
 import subprocess
-import tempfile
 from abc import ABC, abstractmethod
+from typing import Dict, Optional, List, Any
 from pathlib import Path
-from typing import Dict, Optional, Any
 
 
-class DeploymentTarget(ABC):
-    """Base class for deployment targets."""
+class DeploymentError(Exception):
+    """Raised when deployment fails."""
+    pass
 
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
+
+class DeploymentStrategy(ABC):
+    """Base class for deployment strategies."""
 
     @abstractmethod
-    async def deploy(self, files: Dict[str, str], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
         """
-        Deploy files to target.
+        Deploy files/project to target.
 
         Args:
-            files: Dictionary of {filename: content}
-            metadata: Deployment metadata (project name, description, etc.)
+            source_path: Path to file or directory to deploy
+            **kwargs: Strategy-specific configuration
 
         Returns:
-            Dictionary with deployment result (status, url, message, etc.)
+            Dict with deployment results (urls, status, etc.)
         """
         pass
 
     @abstractmethod
-    def validate_config(self) -> tuple[bool, Optional[str]]:
-        """
-        Validate deployment configuration.
+    def supports(self, project_type: str) -> bool:
+        """Check if this strategy supports the project type."""
+        pass
 
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
+    @abstractmethod
+    def get_requirements(self) -> List[str]:
+        """Get list of requirements/prerequisites for this deployment."""
         pass
 
 
-class LocalDeployment(DeploymentTarget):
-    """Deploy to local file system."""
+class GoogleColabStrategy(DeploymentStrategy):
+    """Deploy Jupyter notebooks to Google Colab via Drive."""
 
-    def validate_config(self) -> tuple[bool, Optional[str]]:
-        output_dir = self.config.get('output_dir')
-        if not output_dir:
-            return False, "output_dir is required"
-        return True, None
+    def supports(self, project_type: str) -> bool:
+        return project_type in ["jupyter_notebook", "notebook", "ipynb"]
 
-    async def deploy(self, files: Dict[str, str], metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Save files to local directory."""
-        output_dir = Path(self.config['output_dir']).expanduser()
-        output_dir.mkdir(parents=True, exist_ok=True)
+    def get_requirements(self) -> List[str]:
+        return [
+            "Google Cloud credentials (OAuth)",
+            "google-api-python-client",
+            "google-auth-httplib2",
+            "google-auth-oauthlib"
+        ]
 
-        deployed_files = []
-        for filename, content in files.items():
-            file_path = output_dir / filename
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(content)
-            deployed_files.append(str(file_path))
-
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
+        """Deploy notebook to Google Drive for Colab access."""
+        # For now, return instructions (full implementation requires OAuth)
         return {
-            'status': 'success',
-            'message': f'Deployed {len(deployed_files)} files to {output_dir}',
-            'location': str(output_dir),
-            'files': deployed_files
+            "status": "manual_upload_required",
+            "colab_url": "https://colab.research.google.com/",
+            "instructions": [
+                "1. Go to https://colab.research.google.com/",
+                f"2. Upload file: {source_path}",
+                "3. Or set up Google Drive API for automatic upload"
+            ],
+            "notebook_path": source_path
         }
 
 
-class DockerDeployment(DeploymentTarget):
-    """Deploy as a Docker container."""
+class GitHubPagesStrategy(DeploymentStrategy):
+    """Deploy static sites to GitHub Pages."""
 
-    def validate_config(self) -> tuple[bool, Optional[str]]:
-        image_name = self.config.get('image_name')
-        if not image_name:
-            return False, "image_name is required"
-        return True, None
+    def supports(self, project_type: str) -> bool:
+        return project_type in ["static_site", "html", "web", "docs"]
 
-    async def deploy(self, files: Dict[str, str], metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Build and optionally run a Docker container."""
-        image_name = self.config['image_name']
-        container_name = self.config.get('container_name', image_name.replace(':', '-'))
-        port = self.config.get('port', 8080)
-        auto_run = self.config.get('auto_run', True)
+    def get_requirements(self) -> List[str]:
+        return ["git", "GitHub repository", "gh CLI (optional)"]
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
+        """Deploy to GitHub Pages."""
+        repo_url = kwargs.get("repo_url")
+        branch = kwargs.get("branch", "gh-pages")
 
-            # Write files
-            for filename, content in files.items():
-                file_path = temp_path / filename
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(content)
-
-            # Create Dockerfile if not provided
-            if 'Dockerfile' not in files:
-                dockerfile_content = self._generate_dockerfile(files, metadata)
-                (temp_path / 'Dockerfile').write_text(dockerfile_content)
-
-            # Build image
-            build_result = subprocess.run(
-                ['docker', 'build', '-t', image_name, '.'],
-                cwd=temp_path,
-                capture_output=True,
-                text=True
-            )
-
-            if build_result.returncode != 0:
-                return {
-                    'status': 'error',
-                    'message': f'Docker build failed: {build_result.stderr}'
-                }
-
-            result = {
-                'status': 'success',
-                'message': f'Docker image built: {image_name}',
-                'image': image_name
-            }
-
-            # Run container if requested
-            if auto_run:
-                # Stop existing container if running
-                subprocess.run(
-                    ['docker', 'stop', container_name],
-                    capture_output=True
-                )
-                subprocess.run(
-                    ['docker', 'rm', container_name],
-                    capture_output=True
-                )
-
-                # Run new container
-                run_result = subprocess.run(
-                    ['docker', 'run', '-d', '--name', container_name,
-                     '-p', f'{port}:{port}', image_name],
-                    capture_output=True,
-                    text=True
-                )
-
-                if run_result.returncode == 0:
-                    result['container'] = container_name
-                    result['url'] = f'http://localhost:{port}'
-                    result['message'] += f'\nContainer running: {container_name} on port {port}'
-                else:
-                    result['message'] += f'\nWarning: Container run failed: {run_result.stderr}'
-
-            return result
-
-    def _generate_dockerfile(self, files: Dict[str, str], metadata: Dict[str, Any]) -> str:
-        """Generate a basic Dockerfile based on detected file types."""
-        has_python = any(f.endswith('.py') for f in files)
-        has_node = 'package.json' in files
-        has_html = any(f.endswith('.html') for f in files)
-
-        if has_python:
-            return """FROM python:3.14-slim
-WORKDIR /app
-COPY . .
-RUN pip install -r requirements.txt || true
-EXPOSE 8080
-CMD ["python", "app.py"]
-"""
-        elif has_node:
-            return """FROM node:20-slim
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-EXPOSE 8080
-CMD ["npm", "start"]
-"""
-        elif has_html:
-            return """FROM nginx:alpine
-COPY . /usr/share/nginx/html
-EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]
-"""
-        else:
-            return """FROM alpine:latest
-WORKDIR /app
-COPY . .
-EXPOSE 8080
-CMD ["sh", "-c", "echo 'Deployed files:' && ls -la"]
-"""
-
-
-class GitHubPagesDeployment(DeploymentTarget):
-    """Deploy to GitHub Pages."""
-
-    def validate_config(self) -> tuple[bool, Optional[str]]:
-        repo_url = self.config.get('repo_url')
         if not repo_url:
-            return False, "repo_url is required"
-        return True, None
+            raise DeploymentError("repo_url required for GitHub Pages deployment")
 
-    async def deploy(self, files: Dict[str, str], metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Deploy to GitHub Pages via gh-pages branch."""
-        repo_url = self.config['repo_url']
-        branch = self.config.get('branch', 'gh-pages')
+        try:
+            # Initialize git if needed
+            if not os.path.exists(os.path.join(source_path, ".git")):
+                subprocess.run(["git", "init"], cwd=source_path, check=True)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-
-            # Clone repository
-            clone_result = subprocess.run(
-                ['git', 'clone', repo_url, '.'],
-                cwd=temp_path,
-                capture_output=True,
-                text=True
-            )
-
-            if clone_result.returncode != 0:
-                return {
-                    'status': 'error',
-                    'message': f'Git clone failed: {clone_result.stderr}'
-                }
-
-            # Create/checkout gh-pages branch
-            subprocess.run(['git', 'checkout', '-b', branch], cwd=temp_path, capture_output=True)
-            subprocess.run(['git', 'checkout', branch], cwd=temp_path, capture_output=True)
-
-            # Clear existing files (except .git)
-            for item in temp_path.iterdir():
-                if item.name != '.git':
-                    if item.is_dir():
-                        subprocess.run(['rm', '-rf', str(item)])
-                    else:
-                        item.unlink()
-
-            # Write new files
-            for filename, content in files.items():
-                file_path = temp_path / filename
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(content)
-
-            # Commit and push
-            subprocess.run(['git', 'add', '.'], cwd=temp_path)
+            # Add remote
             subprocess.run(
-                ['git', 'commit', '-m', f'Deploy: {metadata.get("description", "Update")}'],
-                cwd=temp_path,
+                ["git", "remote", "add", "origin", repo_url],
+                cwd=source_path,
                 capture_output=True
             )
 
-            push_result = subprocess.run(
-                ['git', 'push', 'origin', branch, '--force'],
-                cwd=temp_path,
-                capture_output=True,
-                text=True
+            # Commit and push
+            subprocess.run(["git", "add", "."], cwd=source_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "Deploy to GitHub Pages"],
+                cwd=source_path,
+                check=True
+            )
+            subprocess.run(
+                ["git", "push", "-u", "origin", branch],
+                cwd=source_path,
+                check=True
             )
 
-            if push_result.returncode != 0:
-                return {
-                    'status': 'error',
-                    'message': f'Git push failed: {push_result.stderr}'
-                }
-
             # Extract GitHub Pages URL
-            repo_parts = repo_url.rstrip('.git').split('/')
-            username = repo_parts[-2].split(':')[-1]
-            repo_name = repo_parts[-1]
-            gh_pages_url = f'https://{username}.github.io/{repo_name}/'
+            repo_name = repo_url.split("/")[-1].replace(".git", "")
+            username = repo_url.split("/")[-2]
+            pages_url = f"https://{username}.github.io/{repo_name}/"
 
             return {
-                'status': 'success',
-                'message': f'Deployed to GitHub Pages',
-                'url': gh_pages_url,
-                'branch': branch
+                "status": "deployed",
+                "url": pages_url,
+                "repo_url": repo_url,
+                "branch": branch
             }
 
+        except subprocess.CalledProcessError as e:
+            raise DeploymentError(f"GitHub Pages deployment failed: {e}")
 
-class EC2Deployment(DeploymentTarget):
-    """Deploy to AWS EC2 instance."""
 
-    def validate_config(self) -> tuple[bool, Optional[str]]:
-        required = ['host', 'user', 'key_path']
-        for field in required:
-            if not self.config.get(field):
-                return False, f"{field} is required"
-        return True, None
+class HerokuStrategy(DeploymentStrategy):
+    """Deploy web apps to Heroku."""
 
-    async def deploy(self, files: Dict[str, str], metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Deploy to EC2 via SCP and SSH."""
-        host = self.config['host']
-        user = self.config['user']
-        key_path = self.config['key_path']
-        remote_dir = self.config.get('remote_dir', '/var/www/html')
+    def supports(self, project_type: str) -> bool:
+        return project_type in ["web_app", "api", "backend", "python_app"]
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+    def get_requirements(self) -> List[str]:
+        return ["Heroku CLI", "Heroku account", "Procfile", "requirements.txt"]
 
-            # Write files locally
-            for filename, content in files.items():
-                file_path = temp_path / filename
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                file_path.write_text(content)
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
+        """Deploy to Heroku."""
+        app_name = kwargs.get("app_name")
 
-            # Create remote directory
-            ssh_cmd = ['ssh', '-i', key_path, f'{user}@{host}', f'mkdir -p {remote_dir}']
-            subprocess.run(ssh_cmd, capture_output=True)
+        try:
+            # Create Heroku app if needed
+            if app_name:
+                subprocess.run(
+                    ["heroku", "create", app_name],
+                    cwd=source_path,
+                    capture_output=True
+                )
 
-            # Copy files via SCP
-            scp_cmd = ['scp', '-i', key_path, '-r', f'{temp_path}/*', f'{user}@{host}:{remote_dir}/']
-            scp_result = subprocess.run(scp_cmd, capture_output=True, text=True)
+            # Deploy
+            subprocess.run(["git", "push", "heroku", "main"], cwd=source_path, check=True)
 
-            if scp_result.returncode != 0:
-                return {
-                    'status': 'error',
-                    'message': f'SCP failed: {scp_result.stderr}'
-                }
+            # Get app URL
+            result = subprocess.run(
+                ["heroku", "apps:info", "--json"],
+                cwd=source_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
 
-            # Run post-deploy commands if specified
-            post_deploy = self.config.get('post_deploy_commands', [])
-            for cmd in post_deploy:
-                ssh_cmd = ['ssh', '-i', key_path, f'{user}@{host}', cmd]
-                subprocess.run(ssh_cmd, capture_output=True)
+            app_info = json.loads(result.stdout)
+            app_url = app_info["app"]["web_url"]
 
             return {
-                'status': 'success',
-                'message': f'Deployed to EC2: {user}@{host}:{remote_dir}',
-                'host': host,
-                'location': remote_dir
+                "status": "deployed",
+                "url": app_url,
+                "app_name": app_info["app"]["name"]
             }
 
-
-# Deployment factory
-DEPLOYMENT_TARGETS = {
-    'local': LocalDeployment,
-    'docker': DockerDeployment,
-    'github': GitHubPagesDeployment,
-    'ec2': EC2Deployment,
-}
+        except subprocess.CalledProcessError as e:
+            raise DeploymentError(f"Heroku deployment failed: {e}")
 
 
-def get_deployment_target(target_type: str, config: Dict[str, Any]) -> Optional[DeploymentTarget]:
-    """Get deployment target instance by type."""
-    target_class = DEPLOYMENT_TARGETS.get(target_type)
-    if not target_class:
-        return None
-    return target_class(config)
+class VercelStrategy(DeploymentStrategy):
+    """Deploy web apps to Vercel."""
+
+    def supports(self, project_type: str) -> bool:
+        return project_type in ["web_app", "nextjs", "react", "static_site"]
+
+    def get_requirements(self) -> List[str]:
+        return ["Vercel CLI", "Vercel account"]
+
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
+        """Deploy to Vercel."""
+        try:
+            production = kwargs.get("production", True)
+            cmd = ["vercel", "--yes"]
+            if production:
+                cmd.append("--prod")
+
+            result = subprocess.run(
+                cmd,
+                cwd=source_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Extract URL from output
+            url = result.stdout.strip().split("\n")[-1]
+
+            return {
+                "status": "deployed",
+                "url": url,
+                "production": production
+            }
+
+        except subprocess.CalledProcessError as e:
+            raise DeploymentError(f"Vercel deployment failed: {e}")
+
+
+class DockerHubStrategy(DeploymentStrategy):
+    """Deploy containers to Docker Hub."""
+
+    def supports(self, project_type: str) -> bool:
+        return project_type in ["container", "docker", "dockerfile"]
+
+    def get_requirements(self) -> List[str]:
+        return ["Docker", "Docker Hub account"]
+
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
+        """Build and push to Docker Hub."""
+        image_name = kwargs.get("image_name")
+        tag = kwargs.get("tag", "latest")
+
+        if not image_name:
+            raise DeploymentError("image_name required for Docker Hub deployment")
+
+        try:
+            # Build image
+            subprocess.run(
+                ["docker", "build", "-t", f"{image_name}:{tag}", "."],
+                cwd=source_path,
+                check=True
+            )
+
+            # Push to Docker Hub
+            subprocess.run(
+                ["docker", "push", f"{image_name}:{tag}"],
+                check=True
+            )
+
+            return {
+                "status": "deployed",
+                "image": f"{image_name}:{tag}",
+                "registry": "hub.docker.com",
+                "pull_command": f"docker pull {image_name}:{tag}"
+            }
+
+        except subprocess.CalledProcessError as e:
+            raise DeploymentError(f"Docker Hub deployment failed: {e}")
+
+
+class LocalStrategy(DeploymentStrategy):
+    """Copy files locally (for testing/backup)."""
+
+    def supports(self, project_type: str) -> bool:
+        return True  # Supports all project types
+
+    def get_requirements(self) -> List[str]:
+        return []  # No external requirements
+
+    def deploy(self, source_path: str, **kwargs) -> Dict[str, Any]:
+        """Copy to local destination."""
+        import shutil
+        from pathlib import Path
+
+        # Try to get output_dir from env var, then settings, then fallback
+        default_path = os.environ.get(
+            "AITRIL_OUTPUTS_DIR",
+            str(Path.home() / "Documents" / "projects" / "aitril_outputs")
+        )
+        dest_path = kwargs.get("dest_path", default_path)
+
+        if os.path.isfile(source_path):
+            os.makedirs(dest_path, exist_ok=True)
+            target = os.path.join(dest_path, os.path.basename(source_path))
+            shutil.copy2(source_path, target)
+        else:
+            if os.path.exists(dest_path):
+                shutil.rmtree(dest_path)
+            shutil.copytree(source_path, dest_path)
+            target = dest_path
+
+        return {
+            "status": "deployed",
+            "local_path": target,
+            "type": "file" if os.path.isfile(target) else "directory"
+        }
+
+
+class DeploymentManager:
+    """Manages deployment strategies and selects appropriate target."""
+
+    def __init__(self):
+        self.strategies: Dict[str, DeploymentStrategy] = {
+            "google_colab": GoogleColabStrategy(),
+            "github_pages": GitHubPagesStrategy(),
+            "heroku": HerokuStrategy(),
+            "vercel": VercelStrategy(),
+            "docker_hub": DockerHubStrategy(),
+            "local": LocalStrategy()
+        }
+
+    def register_strategy(self, name: str, strategy: DeploymentStrategy):
+        """Register a custom deployment strategy."""
+        self.strategies[name] = strategy
+
+    def get_compatible_strategies(self, project_type: str) -> List[str]:
+        """Get list of strategies that support the project type."""
+        return [
+            name for name, strategy in self.strategies.items()
+            if strategy.supports(project_type)
+        ]
+
+    def deploy(
+        self,
+        source_path: str,
+        target: Optional[str] = None,
+        project_type: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Deploy to specified target or auto-select based on project type.
+
+        Args:
+            source_path: Path to deploy
+            target: Specific deployment target name (optional)
+            project_type: Type of project (optional, for auto-selection)
+            **kwargs: Strategy-specific parameters
+
+        Returns:
+            Dict with deployment results
+        """
+        # Auto-detect project type if not specified
+        if not project_type:
+            project_type = self._detect_project_type(source_path)
+
+        # Use specified target or auto-select
+        if target:
+            if target not in self.strategies:
+                raise DeploymentError(f"Unknown deployment target: {target}")
+            strategy = self.strategies[target]
+        else:
+            # Auto-select first compatible strategy
+            compatible = self.get_compatible_strategies(project_type)
+            if not compatible:
+                raise DeploymentError(
+                    f"No deployment strategy supports project type: {project_type}"
+                )
+            strategy = self.strategies[compatible[0]]
+            target = compatible[0]
+
+        # Check if strategy supports this project type
+        if not strategy.supports(project_type):
+            raise DeploymentError(
+                f"{target} does not support project type: {project_type}"
+            )
+
+        # Execute deployment
+        result = strategy.deploy(source_path, **kwargs)
+        result["deployment_target"] = target
+        result["project_type"] = project_type
+
+        return result
+
+    def _detect_project_type(self, path: str) -> str:
+        """Auto-detect project type from path."""
+        if os.path.isfile(path):
+            ext = os.path.splitext(path)[1]
+            if ext == ".ipynb":
+                return "jupyter_notebook"
+            elif ext == ".html":
+                return "static_site"
+            elif ext in [".py", ".pyw"]:
+                return "python_app"
+
+        # Check directory contents
+        if os.path.isdir(path):
+            files = os.listdir(path)
+            if "Dockerfile" in files:
+                return "container"
+            elif "package.json" in files:
+                return "web_app"
+            elif "requirements.txt" in files or "setup.py" in files:
+                return "python_app"
+            elif "index.html" in files:
+                return "static_site"
+
+        return "unknown"
