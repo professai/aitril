@@ -638,8 +638,14 @@ class GeminiProvider(Provider):
                         for part in response.parts:
                             if hasattr(part, 'text') and part.text:
                                 text_parts.append(part.text)
-                            elif hasattr(part, 'function_call'):
-                                function_calls.append(part.function_call)
+                            elif hasattr(part, 'function_call') and part.function_call:
+                                # Only add if function_call has a valid name
+                                fc = part.function_call
+                                fc_name = getattr(fc, 'name', None)
+                                if fc_name and str(fc_name).strip():
+                                    function_calls.append(fc)
+                                else:
+                                    print(f"DEBUG: Ignoring function_call with invalid name at collection: {repr(fc_name)}")
 
                     # If no function calls, return the text
                     if not function_calls:
@@ -648,23 +654,28 @@ class GeminiProvider(Provider):
                     # Execute function calls
                     function_responses = []
                     for func_call in function_calls:
-                        # Skip if name is empty or None
-                        if not func_call.name:
-                            print(f"DEBUG: Skipping function call with empty name")
+                        # Get the function name, handling various edge cases
+                        func_name = getattr(func_call, 'name', None)
+
+                        # Skip if name is empty, None, or whitespace-only
+                        if not func_name or not str(func_name).strip():
+                            print(f"DEBUG: Skipping function call with empty/invalid name: {repr(func_name)}")
                             continue
+
+                        func_name = str(func_name).strip()
 
                         # Convert function call args to dict
                         args = dict(func_call.args) if func_call.args else {}
 
                         # Execute the tool (sync version since we're in executor)
                         result = asyncio.run(
-                            self.tool_registry.execute_tool(func_call.name, **args)
+                            self.tool_registry.execute_tool(func_name, **args)
                         )
 
                         function_responses.append(
                             genai.protos.Part(
                                 function_response=genai.protos.FunctionResponse(
-                                    name=func_call.name,
+                                    name=func_name,
                                     response={"result": result}
                                 )
                             )
@@ -736,8 +747,14 @@ class GeminiProvider(Provider):
                             if hasattr(part, 'text') and part.text:
                                 text_parts.append(part.text)
                                 yield ("text", part.text)
-                            elif hasattr(part, 'function_call'):
-                                function_calls.append(part.function_call)
+                            elif hasattr(part, 'function_call') and part.function_call:
+                                # Only add if function_call has a valid name
+                                fc = part.function_call
+                                fc_name = getattr(fc, 'name', None)
+                                if fc_name and str(fc_name).strip():
+                                    function_calls.append(fc)
+                                else:
+                                    print(f"DEBUG: Ignoring function_call with invalid name at collection (stream): {repr(fc_name)}")
 
                 # If no function calls, we're done
                 if not function_calls:
@@ -746,21 +763,26 @@ class GeminiProvider(Provider):
                 # Execute function calls
                 function_responses = []
                 for func_call in function_calls:
-                    # Skip if name is empty or None
-                    if not func_call.name:
-                        print(f"DEBUG: Skipping function call with empty name")
+                    # Get the function name, handling various edge cases
+                    func_name = getattr(func_call, 'name', None)
+
+                    # Skip if name is empty, None, or whitespace-only
+                    if not func_name or not str(func_name).strip():
+                        print(f"DEBUG: Skipping function call with empty/invalid name: {repr(func_name)}")
                         continue
+
+                    func_name = str(func_name).strip()
 
                     # Convert function call args to dict
                     args = dict(func_call.args) if func_call.args else {}
 
                     # Yield tool execution info
-                    yield ("tool_start", f"\n\n🔧 **Executing tool:** `{func_call.name}`\n")
+                    yield ("tool_start", f"\n\n🔧 **Executing tool:** `{func_name}`\n")
                     yield ("tool_args", f"**Arguments:** {json.dumps(args, indent=2)}\n")
 
                     # Execute the tool
                     result = asyncio.run(
-                        self.tool_registry.execute_tool(func_call.name, **args)
+                        self.tool_registry.execute_tool(func_name, **args)
                     )
 
                     # Yield tool result
@@ -769,7 +791,7 @@ class GeminiProvider(Provider):
                     function_responses.append(
                         genai.protos.Part(
                             function_response=genai.protos.FunctionResponse(
-                                name=func_call.name,
+                                name=func_name,
                                 response={"result": result}
                             )
                         )

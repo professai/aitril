@@ -11,8 +11,8 @@ services:
     env_file:
       - .env  # Load API keys from .env file
     environment:
-      # AiTril configuration (use container path for deployments)
-      - AITRIL_OUTPUTS_DIR=/root/Documents/projects/aitril_outputs
+      # AiTril configuration - use /outputs inside container (mounted from host)
+      - AITRIL_OUTPUTS_DIR=/outputs
       # Cloud provider API keys
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -27,8 +27,8 @@ services:
       - .:/app
       # Persist settings across restarts
       - aitril-settings:/root/.aitril
-      # Mount aitril_outputs directory for deployments (configurable via .env)
-      - ${AITRIL_OUTPUTS_DIR:-../aitril_outputs}:/root/Documents/projects/aitril_outputs
+      # Mount host outputs directory to /outputs in container
+      - ${AITRIL_OUTPUTS_DIR:-./aitril_build_session/projects}:/outputs
     command: bash
     stdin_open: true
     tty: true
@@ -49,8 +49,8 @@ services:
     env_file:
       - .env
     environment:
-      # AiTril configuration (use container path for deployments)
-      - AITRIL_OUTPUTS_DIR=/root/Documents/projects/aitril_outputs
+      # AiTril configuration - use /outputs inside container (mounted from host)
+      - AITRIL_OUTPUTS_DIR=/outputs
       # Cloud provider API keys
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -62,8 +62,8 @@ services:
     volumes:
       - .:/app
       - aitril-settings:/root/.aitril
-      # Mount aitril_outputs directory for deployments (configurable via .env)
-      - ${AITRIL_OUTPUTS_DIR:-../aitril_outputs}:/root/Documents/projects/aitril_outputs
+      # Mount host outputs directory to /outputs in container
+      - ${AITRIL_OUTPUTS_DIR:-./aitril_build_session/projects}:/outputs
     ports:
       - "37142:37142"
     command: aitril web --host 0.0.0.0 --port 37142

@@ -5,6 +5,38 @@ All notable changes to AiTril will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.38] - 2025-11-30
+
+### Added
+- **System Prompt Support**: Global system prompt injection across all LLM providers
+  - New `AITRIL_SYSTEM_PROMPT` environment variable
+  - Injected into OpenAI, Anthropic, Gemini, Ollama, and LlamaCpp providers
+  - Enables consistent, focused engineering collaboration tone
+  - Configured via `.env` file for persistence
+
+### Fixed
+- **Gemini Function Call Empty Name Error**: Robust handling of empty/invalid function names
+  - Filter invalid function calls at collection time (before processing)
+  - Added `getattr()` and `str().strip()` validation for function names
+  - Skip function calls with empty, None, or whitespace-only names
+  - Prevents `400 GenerateContentRequest.contents[].parts[].function_response.name: Name cannot be empty` error
+
+- **FileTool Output Directory**: Files now correctly written to `AITRIL_OUTPUTS_DIR`
+  - Write operations always go to the configured outputs directory
+  - Read operations check outputs dir first, then fall back to literal path
+  - List operations default to outputs dir for `.` or empty path
+  - Parent directories created automatically for nested paths
+
+### Changed
+- **Docker Volume Mounts**: Simplified container output directory handling
+  - Container uses `/outputs` internally (mounted from host)
+  - Host `AITRIL_OUTPUTS_DIR` maps directly to container `/outputs`
+  - Default: `./aitril_build_session/projects` if env var not set
+  - Fixed issue where files were created inside container but not visible on host
+
+- Updated Dockerfile to install v0.0.38 from PyPI
+- Updated docker-compose.yml with cleaner volume mount configuration
+
 ## [0.0.37] - 2025-11-29
 
 ### Added

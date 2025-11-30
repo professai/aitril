@@ -180,8 +180,15 @@ class FileTool(Tool):
     def __init__(self):
         super().__init__(
             name="file_operation",
-            description="Perform file operations: read, write, or list files in a directory."
+            description="Perform file operations: read, write, or list files in a directory. Write operations are placed in the outputs directory."
         )
+        # Get the outputs directory from environment or use default
+        self.outputs_dir = os.environ.get(
+            'AITRIL_OUTPUTS_DIR',
+            os.path.expanduser('~/Documents/projects/aitril_outputs')
+        )
+        # Ensure outputs directory exists
+        os.makedirs(self.outputs_dir, exist_ok=True)
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -211,14 +218,37 @@ class FileTool(Tool):
             }
         }
 
+    def _resolve_write_path(self, path: str) -> str:
+        """Resolve path for write operations - ensures files go to outputs directory."""
+        # If path is absolute and outside outputs_dir, use just the filename
+        if os.path.isabs(path):
+            # Extract just the filename/relative portion
+            path = os.path.basename(path)
+
+        # Join with outputs directory
+        full_path = os.path.join(self.outputs_dir, path)
+
+        # Create parent directories if needed
+        parent_dir = os.path.dirname(full_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        return full_path
+
     async def execute(self, operation: str, path: str, content: Optional[str] = None) -> str:
         """Execute file operation."""
         try:
             if operation == "read":
-                if not os.path.exists(path):
-                    return f"Error: File '{path}' does not exist"
+                # For read, first check outputs_dir, then try absolute/relative path
+                outputs_path = os.path.join(self.outputs_dir, path)
+                if os.path.exists(outputs_path):
+                    read_path = outputs_path
+                elif os.path.exists(path):
+                    read_path = path
+                else:
+                    return f"Error: File '{path}' does not exist (checked {outputs_path} and {path})"
 
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(read_path, 'r', encoding='utf-8') as f:
                     file_content = f.read()
                     # Limit output size
                     if len(file_content) > 5000:
@@ -229,28 +259,40 @@ class FileTool(Tool):
                 if content is None:
                     return "Error: Content parameter required for write operation"
 
-                with open(path, 'w', encoding='utf-8') as f:
+                # Always write to outputs directory
+                write_path = self._resolve_write_path(path)
+
+                with open(write_path, 'w', encoding='utf-8') as f:
                     f.write(content)
-                return f"Successfully wrote {len(content)} characters to {path}"
+                return f"Successfully wrote {len(content)} characters to {write_path}"
 
             elif operation == "list":
-                if not os.path.exists(path):
-                    return f"Error: Directory '{path}' does not exist"
+                # For list, first check outputs_dir, then try the given path
+                if path == "." or path == "" or path == "./":
+                    list_path = self.outputs_dir
+                else:
+                    outputs_path = os.path.join(self.outputs_dir, path)
+                    if os.path.exists(outputs_path):
+                        list_path = outputs_path
+                    elif os.path.exists(path):
+                        list_path = path
+                    else:
+                        return f"Error: Directory '{path}' does not exist"
 
-                if os.path.isfile(path):
-                    return f"'{path}' is a file, not a directory"
+                if os.path.isfile(list_path):
+                    return f"'{list_path}' is a file, not a directory"
 
-                entries = os.listdir(path)
-                result = []
+                entries = os.listdir(list_path)
+                result = [f"📂 Listing: {list_path}\n"]
                 for entry in sorted(entries):
-                    full_path = os.path.join(path, entry)
+                    full_path = os.path.join(list_path, entry)
                     if os.path.isdir(full_path):
                         result.append(f"📁 {entry}/")
                     else:
                         size = os.path.getsize(full_path)
                         result.append(f"📄 {entry} ({size} bytes)")
 
-                return "\n".join(result) if result else "(empty directory)"
+                return "\n".join(result) if len(result) > 1 else "(empty directory)"
 
             else:
                 return f"Error: Unknown operation '{operation}'"

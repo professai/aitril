@@ -1,7 +1,7 @@
 # AiTril Production Dockerfile
 # Using official Python 3.14 image
-# Installs AiTril v0.0.37 from PyPI with web interface and specialized providers
-# v0.0.37: Gemini provider fixes + Tech stack config in .env
+# Installs AiTril v0.0.38 from PyPI with web interface and specialized providers
+# v0.0.38: Gemini function call fixes + FileTool outputs directory + Docker volume mounts
 
 FROM python:3.14-slim
 
@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --upgrade pip setuptools wheel
 
 # Install AiTril from PyPI with web extras
-RUN pip install 'aitril[web]==0.0.37'
+RUN pip install 'aitril[web]==0.0.38'
 
 # Expose web server port
 EXPOSE 37142
@@ -32,12 +32,12 @@ CMD ["aitril", "web", "--host", "0.0.0.0", "--port", "37142"]
 
 # Usage examples:
 # Web interface:
-# docker run -p 37142:37142 --env-file .env professai/aitril:0.0.37
+# docker run -p 37142:37142 --env-file .env collinparan/aitril:0.0.38
 # Then open http://localhost:37142
 #
 # CLI usage:
-# docker run -it --env-file .env professai/aitril:0.0.37 aitril --help
-# docker run -it --env-file .env professai/aitril:0.0.37 aitril tri "your prompt"
+# docker run -it --env-file .env collinparan/aitril:0.0.38 aitril --help
+# docker run -it --env-file .env collinparan/aitril:0.0.38 aitril tri "your prompt"
 #
 # With specialized providers (requires API keys in .env):
 # OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY
