@@ -135,6 +135,26 @@ Thumbs.db
 
 # AiTril specific
 *.toml.bak
+# Prevent accidentally committing aitril build outputs
+*_database.py
+*_monitor*.py
+*_requirements.txt
+mini*.py
+minimal*.py
+minimal*.sh
+test_script.py
+# Old test/demo artifacts
+demo_*.gif
+*_old.gif
+# Development notes (can be committed manually if needed)
+IMPROVEMENTS_NEEDED.md
+TEST_RESULTS.md
+DEPLOYMENT_CHECKPOINT.md
+# Aitril build session outputs
+aitril_build_session/
+
+# Separate repositories (have their own git repos)
+aitril-landing/
 
 # Claude Code
 .claude/

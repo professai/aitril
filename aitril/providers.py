@@ -32,6 +32,7 @@ class Provider(ABC):
         self.config = config
         self.api_key = self._get_api_key()
         self.model = self._get_model()
+        self.system_prompt = self._get_system_prompt()
         self.tool_registry: ToolRegistry = get_tool_registry()
         self.enable_tools: bool = config.get("enable_tools", True)
 
@@ -71,6 +72,24 @@ class Provider(ABC):
             model = self._default_model()
 
         return model
+
+    def _get_system_prompt(self) -> Optional[str]:
+        """
+        Get system prompt from config or environment variable.
+
+        Priority: config > environment variable
+
+        Returns:
+            System prompt string, or None if not set.
+        """
+        # Try config first
+        system_prompt = self.config.get("system_prompt")
+
+        # Fall back to environment variable
+        if not system_prompt:
+            system_prompt = os.environ.get("AITRIL_SYSTEM_PROMPT")
+
+        return system_prompt
 
     def _requires_api_key(self) -> bool:
         """Return True if provider requires an API key. Override for local models."""
@@ -153,7 +172,10 @@ class OpenAIProvider(Provider):
         """
         client = openai.AsyncOpenAI(api_key=self.api_key)
 
-        messages = [{"role": "user", "content": prompt}]
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": prompt})
         tools = self.tool_registry.get_openai_tools() if self.enable_tools else None
 
         # Tool calling loop
@@ -220,7 +242,10 @@ class OpenAIProvider(Provider):
         """
         client = openai.AsyncOpenAI(api_key=self.api_key)
 
-        messages = [{"role": "user", "content": prompt}]
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": prompt})
         tools = self.tool_registry.get_openai_tools() if self.enable_tools else None
 
         # Tool calling loop with streaming
@@ -354,6 +379,7 @@ class AnthropicProvider(Provider):
                 model=self.model,
                 max_tokens=2000,
                 messages=messages,
+                system=self.system_prompt if self.system_prompt else anthropic.NOT_GIVEN,
                 tools=tools if tools else anthropic.NOT_GIVEN
             )
 
@@ -427,6 +453,7 @@ class AnthropicProvider(Provider):
                 model=self.model,
                 max_tokens=2000,
                 messages=messages,
+                system=self.system_prompt if self.system_prompt else anthropic.NOT_GIVEN,
                 tools=tools if tools else anthropic.NOT_GIVEN
             ) as stream:
                 async for event in stream:
@@ -583,9 +610,16 @@ class GeminiProvider(Provider):
                 # Create model with tools if enabled
                 if self.enable_tools:
                     tools = self._convert_tools_to_gemini_format()
-                    model = genai.GenerativeModel(self.model, tools=tools)
+                    model = genai.GenerativeModel(
+                        self.model,
+                        tools=tools,
+                        system_instruction=self.system_prompt if self.system_prompt else None
+                    )
                 else:
-                    model = genai.GenerativeModel(self.model)
+                    model = genai.GenerativeModel(
+                        self.model,
+                        system_instruction=self.system_prompt if self.system_prompt else None
+                    )
 
                 chat = model.start_chat()
                 current_prompt = prompt
@@ -614,6 +648,11 @@ class GeminiProvider(Provider):
                     # Execute function calls
                     function_responses = []
                     for func_call in function_calls:
+                        # Skip if name is empty or None
+                        if not func_call.name:
+                            print(f"DEBUG: Skipping function call with empty name")
+                            continue
+
                         # Convert function call args to dict
                         args = dict(func_call.args) if func_call.args else {}
 
@@ -632,7 +671,12 @@ class GeminiProvider(Provider):
                         )
 
                     # Send function responses back (this becomes the new prompt for next iteration)
-                    current_prompt = genai.protos.Content(parts=function_responses)
+                    # Only send if we have valid function responses
+                    if function_responses:
+                        current_prompt = genai.protos.Content(parts=function_responses)
+                    else:
+                        # No valid function calls, return text content
+                        return "".join(text_parts)
 
                 # Return last text if max iterations reached
                 return "".join(text_parts)
@@ -662,9 +706,16 @@ class GeminiProvider(Provider):
             # Create model with tools if enabled
             if self.enable_tools:
                 tools = self._convert_tools_to_gemini_format()
-                model = genai.GenerativeModel(self.model, tools=tools)
+                model = genai.GenerativeModel(
+                    self.model,
+                    tools=tools,
+                    system_instruction=self.system_prompt if self.system_prompt else None
+                )
             else:
-                model = genai.GenerativeModel(self.model)
+                model = genai.GenerativeModel(
+                    self.model,
+                    system_instruction=self.system_prompt if self.system_prompt else None
+                )
 
             chat = model.start_chat()
             current_prompt = initial_prompt
@@ -695,6 +746,11 @@ class GeminiProvider(Provider):
                 # Execute function calls
                 function_responses = []
                 for func_call in function_calls:
+                    # Skip if name is empty or None
+                    if not func_call.name:
+                        print(f"DEBUG: Skipping function call with empty name")
+                        continue
+
                     # Convert function call args to dict
                     args = dict(func_call.args) if func_call.args else {}
 
@@ -720,7 +776,12 @@ class GeminiProvider(Provider):
                     )
 
                 # Send function responses back for next iteration
-                current_prompt = genai.protos.Content(parts=function_responses)
+                # Only send if we have valid function responses
+                if function_responses:
+                    current_prompt = genai.protos.Content(parts=function_responses)
+                else:
+                    # No valid function calls, exit loop
+                    break
 
                 # Check if we hit max iterations
                 if iteration == max_iterations - 1:
@@ -771,12 +832,18 @@ class OllamaProvider(Provider):
             Ollama's response as a string.
         """
         base_url = self._get_base_url()
+
+        # Prepend system prompt if exists
+        full_prompt = prompt
+        if self.system_prompt:
+            full_prompt = f"{self.system_prompt}\n\n{prompt}"
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{base_url}/api/generate",
                 json={
                     "model": self.model,
-                    "prompt": prompt,
+                    "prompt": full_prompt,
                     "stream": False
                 }
             )
@@ -795,13 +862,19 @@ class OllamaProvider(Provider):
             Text chunks as they arrive from Ollama.
         """
         base_url = self._get_base_url()
+
+        # Prepend system prompt if exists
+        full_prompt = prompt
+        if self.system_prompt:
+            full_prompt = f"{self.system_prompt}\n\n{prompt}"
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
                 f"{base_url}/api/generate",
                 json={
                     "model": self.model,
-                    "prompt": prompt,
+                    "prompt": full_prompt,
                     "stream": True
                 }
             ) as response:
@@ -846,11 +919,17 @@ class LlamaCppProvider(Provider):
             Llama.cpp's response as a string.
         """
         base_url = self._get_base_url()
+
+        # Prepend system prompt if exists
+        full_prompt = prompt
+        if self.system_prompt:
+            full_prompt = f"{self.system_prompt}\n\n{prompt}"
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{base_url}/completion",
                 json={
-                    "prompt": prompt,
+                    "prompt": full_prompt,
                     "n_predict": 1000,
                     "stream": False
                 }
@@ -870,12 +949,18 @@ class LlamaCppProvider(Provider):
             Text chunks as they arrive from Llama.cpp.
         """
         base_url = self._get_base_url()
+
+        # Prepend system prompt if exists
+        full_prompt = prompt
+        if self.system_prompt:
+            full_prompt = f"{self.system_prompt}\n\n{prompt}"
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
                 f"{base_url}/completion",
                 json={
-                    "prompt": prompt,
+                    "prompt": full_prompt,
                     "n_predict": 1000,
                     "stream": True
                 }

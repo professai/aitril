@@ -20,6 +20,9 @@ import asyncio
 from typing import Dict, List, Optional, Any
 
 from .providers import Provider
+from .artifact import AgentArtifact, ArtifactRegistry
+from .verification import FileVerifier, verify_project_files
+from .deployment import DeploymentManager
 
 
 class AgentCoordinator:
@@ -233,7 +236,10 @@ class AgentCoordinator:
         self,
         task_description: str,
         tech_stack: Optional[Dict[str, Any]] = None,
-        project_context: Optional[Dict[str, Any]] = None
+        project_context: Optional[Dict[str, Any]] = None,
+        enable_verification: bool = True,
+        enable_deployment: bool = False,
+        deployment_target: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Coordinate agents to plan and build code collaboratively.
@@ -241,19 +247,35 @@ class AgentCoordinator:
         Phase 1: Consensus on architecture and approach
         Phase 2: Implementation (sequential build)
         Phase 3: Code review and validation
+        Phase 4: File verification (optional, enabled by default)
+        Phase 5: Deployment (optional)
 
         Args:
             task_description: Description of what to build
             tech_stack: Tech stack preferences (language, framework, tools, etc.)
             project_context: Project context (root dir, type, existing files, etc.)
+            enable_verification: Enable file verification after implementation
+            enable_deployment: Enable deployment phase
+            deployment_target: Target for deployment (auto-detected if None)
 
         Returns:
-            Dictionary with plan, code, and review results
+            Dictionary with plan, code, review, verification, and deployment results
         """
+        # Initialize artifact registry
+        registry = ArtifactRegistry()
+
         # Phase 1: Plan with consensus
         planning_prompt = self._build_planning_prompt(task_description, tech_stack, project_context)
 
         planning_results = await self.coordinate_consensus(planning_prompt)
+
+        # Store plan as artifact
+        plan_artifact = AgentArtifact(
+            type="plan",
+            content=planning_results["consensus"],
+            metadata={"phase": "planning", "task": task_description}
+        )
+        registry.register(plan_artifact)
 
         # Phase 2: Implementation (sequential build)
         implementation_prompt = self._build_implementation_prompt(
@@ -265,6 +287,19 @@ class AgentCoordinator:
 
         implementation_results = await self.coordinate_sequential(implementation_prompt)
 
+        # Store implementation as artifacts
+        for provider_name, code in implementation_results.items():
+            code_artifact = AgentArtifact(
+                type="code",
+                content=code,
+                metadata={
+                    "phase": "implementation",
+                    "provider": provider_name,
+                    "task": task_description
+                }
+            )
+            registry.register(code_artifact)
+
         # Phase 3: Code review
         review_prompt = self._build_review_prompt(
             task_description,
@@ -274,14 +309,50 @@ class AgentCoordinator:
 
         review_results = await self.coordinate_consensus(review_prompt)
 
-        return {
+        # Store review as artifact
+        review_artifact = AgentArtifact(
+            type="review",
+            content=review_results["consensus"],
+            metadata={"phase": "review", "task": task_description}
+        )
+        registry.register(review_artifact)
+
+        result = {
             "task": task_description,
             "tech_stack": tech_stack,
             "planning": planning_results,
             "implementation": implementation_results,
             "review": review_results,
+            "artifacts": registry.get_summary(),
             "status": "completed"
         }
+
+        # Phase 4: Verification (optional)
+        if enable_verification and project_context and "root_dir" in project_context:
+            try:
+                verification_results = verify_project_files(project_context["root_dir"])
+                result["verification"] = verification_results
+                result["status"] = "verified" if verification_results["all_valid"] else "verification_failed"
+            except Exception as e:
+                result["verification"] = {"error": str(e)}
+                result["status"] = "verification_error"
+
+        # Phase 5: Deployment (optional)
+        if enable_deployment and project_context and "root_dir" in project_context:
+            try:
+                deployer = DeploymentManager()
+                deployment_result = deployer.deploy(
+                    source_path=project_context["root_dir"],
+                    target=deployment_target,
+                    project_type=project_context.get("type")
+                )
+                result["deployment"] = deployment_result
+                result["status"] = "deployed" if deployment_result["status"] == "deployed" else "deployment_failed"
+            except Exception as e:
+                result["deployment"] = {"error": str(e)}
+                result["status"] = "deployment_error"
+
+        return result
 
     async def coordinate_code_review(
         self,
